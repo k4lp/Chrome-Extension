@@ -180,17 +180,15 @@ ITERATION STRUCTURE
 COMPLETION CRITERIA (When to set is_final: true)
 ═══════════════════════════════════════════════════════════════════════════════
 
-You MUST continue iterating UNTIL ALL of these are satisfied:
+Set is_final: true when ALL 3 of these are satisfied:
 
-1. **Problem Fully Understood** - You have gathered all necessary context
-2. **All Sub-tasks Addressed** - Every aspect of the query has been explored
-3. **Data Collected** - All required information has been retrieved
-4. **Actions Executed** - All necessary operations have been performed
-5. **Solution Validated** - Your solution is complete, correct, and comprehensive
-6. **Edge Cases Considered** - You've thought through potential issues
-7. **Output is Actionable** - Your final output is clear and complete
+1. **Query Answered** - You have a complete answer to the user's question
+2. **Actions Completed** - All necessary operations have executed successfully
+3. **Output Ready** - You have written the final_output in markdown format
 
-DO NOT set is_final: true unless ALL criteria are met.
+If all 3 are met, set is_final: true with the final_output field. Don't overthink it.
+
+IMPORTANT: If actions succeeded and you have an answer, SET is_final: true immediately!
 
 ═══════════════════════════════════════════════════════════════════════════════
 REASONING GUIDELINES
@@ -222,6 +220,32 @@ Iteration 3: Fill gaps, perform deeper analysis
 Iteration 4: Synthesize findings, validate approach
 Iteration 5: Execute final actions, verify completeness
 Iteration 6: Set is_final: true with complete output
+
+═══════════════════════════════════════════════════════════════════════════════
+CONCRETE EXAMPLE: When to Stop Iterating
+═══════════════════════════════════════════════════════════════════════════════
+
+User asks: "Create a project called Marketing with 3 tasks"
+
+Iteration 1: Plan approach
+- Reasoning: "User wants a Marketing project with 3 tasks. I'll use execute_code to create both."
+- Actions: None (just planning)
+- is_final: false
+
+Iteration 2: Execute actions
+- Reasoning: "Creating project and tasks now..."
+- Actions: execute_code to create project + 3 tasks
+- Action results: Project created (ID 42), 3 tasks created successfully
+- is_final: false (need to verify and provide output)
+
+Iteration 3: Verify and conclude
+- Reasoning: "Actions succeeded. All tasks created. Query is answered."
+- Observations: ["Project created with ID 42", "3 tasks created successfully"]
+- final_output: "# Marketing Project Created\n\nI've set up your Marketing project with 3 tasks:\n1. Research competitors\n2. Plan Q1 campaign\n3. Design landing page\n\nAll tasks are in todo status and ready for you to work on."
+- completion_reason: "Project and tasks successfully created and verified"
+- is_final: true ✅
+
+DON'T continue iterating after task is done! If actions succeeded and you have an answer, STOP.
 
 ═══════════════════════════════════════════════════════════════════════════════
 REMEMBER
@@ -520,6 +544,21 @@ class IterativeReasoner:
             session.is_complete = True
             session.completion_reason = f"Maximum iterations ({self.max_iterations}) reached"
             session.completed_at = datetime.now()
+
+            # FIX 1: Extract final output from last iteration's reasoning
+            # This ensures user always gets output even if LLM didn't set is_final: true
+            if session.iterations:
+                last_iteration = session.iterations[-1]
+                if last_iteration.reasoning:
+                    session.final_output = last_iteration.reasoning
+                    logger.info(f"✅ Extracted final output from last iteration ({len(session.final_output)} chars)")
+                else:
+                    session.final_output = "Reasoning iterations completed. Check the Reasoning tab for detailed logs."
+                    logger.warning("⚠️ Last iteration has no reasoning text")
+            else:
+                session.final_output = "No iterations completed."
+                logger.warning("⚠️ No iterations found in session")
+
             logger.warning(f"⚠️ Forced stop after {self.max_iterations} iterations")
 
         return session
