@@ -1,6 +1,6 @@
 """Repository layer for database operations."""
 
-from typing import List, Optional
+from typing import List, Optional, TypeVar, Generic, Type
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
@@ -16,9 +16,109 @@ from .models import (
     AutomationTrigger,
 )
 
+# Generic type for models
+T = TypeVar('T')
+
+
+class BaseRepository(Generic[T]):
+    """Base repository with common CRUD operations.
+
+    This eliminates ~150 lines of duplicated code across repositories.
+    """
+
+    def __init__(self, model: Type[T]):
+        """Initialize with model class.
+
+        Args:
+            model: SQLAlchemy model class
+        """
+        self.model = model
+
+    def get_by_id(self, db: Session, item_id: int) -> Optional[T]:
+        """Get item by ID.
+
+        Args:
+            db: Database session
+            item_id: Item ID
+
+        Returns:
+            Item or None
+        """
+        return db.query(self.model).filter(self.model.id == item_id).first()
+
+    def search(self, db: Session, query_text: str, *search_fields) -> List[T]:
+        """Search items by specified fields.
+
+        Args:
+            db: Database session
+            query_text: Search query
+            *search_fields: Field names to search in
+
+        Returns:
+            List of matching items
+        """
+        search_pattern = f"%{query_text}%"
+        filters = [getattr(self.model, field).ilike(search_pattern) for field in search_fields]
+
+        # Determine order by field (prefer created_at, fallback to updated_at)
+        order_by_field = self.model.created_at if hasattr(self.model, 'created_at') else self.model.updated_at
+
+        return (
+            db.query(self.model)
+            .filter(or_(*filters))
+            .order_by(order_by_field.desc())
+            .all()
+        )
+
+    def update(self, db: Session, item_id: int, **kwargs) -> Optional[T]:
+        """Update item fields.
+
+        Args:
+            db: Database session
+            item_id: Item ID
+            **kwargs: Fields to update
+
+        Returns:
+            Updated item or None
+        """
+        item = self.get_by_id(db, item_id)
+        if not item:
+            return None
+
+        for key, value in kwargs.items():
+            if hasattr(item, key):
+                setattr(item, key, value)
+
+        # Auto-update updated_at if present
+        if hasattr(item, 'updated_at'):
+            item.updated_at = datetime.now()
+
+        db.commit()
+        db.refresh(item)
+        return item
+
+    def delete(self, db: Session, item_id: int) -> bool:
+        """Delete an item.
+
+        Args:
+            db: Database session
+            item_id: Item ID
+
+        Returns:
+            True if deleted, False if not found
+        """
+        item = self.get_by_id(db, item_id)
+        if not item:
+            return False
+        db.delete(item)
+        db.commit()
+        return True
+
 
 class TaskRepository:
     """Repository for Task operations."""
+
+    _base = BaseRepository(Task)
 
     @staticmethod
     def create(
@@ -37,7 +137,7 @@ class TaskRepository:
     @staticmethod
     def get_by_id(db: Session, task_id: int) -> Optional[Task]:
         """Get task by ID."""
-        return db.query(Task).filter(Task.id == task_id).first()
+        return TaskRepository._base.get_by_id(db, task_id)
 
     @staticmethod
     def get_all(db: Session, status: Optional[TaskStatus] = None) -> List[Task]:
@@ -50,46 +150,23 @@ class TaskRepository:
     @staticmethod
     def search(db: Session, query_text: str) -> List[Task]:
         """Search tasks by content or notes."""
-        search_pattern = f"%{query_text}%"
-        return (
-            db.query(Task)
-            .filter(
-                or_(
-                    Task.content.ilike(search_pattern),
-                    Task.notes.ilike(search_pattern),
-                )
-            )
-            .order_by(Task.created_at.desc())
-            .all()
-        )
+        return TaskRepository._base.search(db, query_text, 'content', 'notes')
 
     @staticmethod
     def update(db: Session, task_id: int, **kwargs) -> Optional[Task]:
         """Update task fields."""
-        task = TaskRepository.get_by_id(db, task_id)
-        if not task:
-            return None
-        for key, value in kwargs.items():
-            if hasattr(task, key):
-                setattr(task, key, value)
-        task.updated_at = datetime.now()
-        db.commit()
-        db.refresh(task)
-        return task
+        return TaskRepository._base.update(db, task_id, **kwargs)
 
     @staticmethod
     def delete(db: Session, task_id: int) -> bool:
         """Delete a task."""
-        task = TaskRepository.get_by_id(db, task_id)
-        if not task:
-            return False
-        db.delete(task)
-        db.commit()
-        return True
+        return TaskRepository._base.delete(db, task_id)
 
 
 class MemoryRepository:
     """Repository for Memory operations."""
+
+    _base = BaseRepository(Memory)
 
     @staticmethod
     def create(db: Session, content: str, notes: str = "") -> Memory:
@@ -103,7 +180,7 @@ class MemoryRepository:
     @staticmethod
     def get_by_id(db: Session, memory_id: int) -> Optional[Memory]:
         """Get memory by ID."""
-        return db.query(Memory).filter(Memory.id == memory_id).first()
+        return MemoryRepository._base.get_by_id(db, memory_id)
 
     @staticmethod
     def get_all(db: Session) -> List[Memory]:
@@ -113,46 +190,23 @@ class MemoryRepository:
     @staticmethod
     def search(db: Session, query_text: str) -> List[Memory]:
         """Search memories by content or notes."""
-        search_pattern = f"%{query_text}%"
-        return (
-            db.query(Memory)
-            .filter(
-                or_(
-                    Memory.content.ilike(search_pattern),
-                    Memory.notes.ilike(search_pattern),
-                )
-            )
-            .order_by(Memory.updated_at.desc())
-            .all()
-        )
+        return MemoryRepository._base.search(db, query_text, 'content', 'notes')
 
     @staticmethod
     def update(db: Session, memory_id: int, **kwargs) -> Optional[Memory]:
         """Update memory fields."""
-        memory = MemoryRepository.get_by_id(db, memory_id)
-        if not memory:
-            return None
-        for key, value in kwargs.items():
-            if hasattr(memory, key):
-                setattr(memory, key, value)
-        memory.updated_at = datetime.now()
-        db.commit()
-        db.refresh(memory)
-        return memory
+        return MemoryRepository._base.update(db, memory_id, **kwargs)
 
     @staticmethod
     def delete(db: Session, memory_id: int) -> bool:
         """Delete a memory."""
-        memory = MemoryRepository.get_by_id(db, memory_id)
-        if not memory:
-            return False
-        db.delete(memory)
-        db.commit()
-        return True
+        return MemoryRepository._base.delete(db, memory_id)
 
 
 class GoalRepository:
     """Repository for Goal operations."""
+
+    _base = BaseRepository(Goal)
 
     @staticmethod
     def create(
@@ -171,7 +225,7 @@ class GoalRepository:
     @staticmethod
     def get_by_id(db: Session, goal_id: int) -> Optional[Goal]:
         """Get goal by ID."""
-        return db.query(Goal).filter(Goal.id == goal_id).first()
+        return GoalRepository._base.get_by_id(db, goal_id)
 
     @staticmethod
     def get_all(db: Session, status: Optional[GoalStatus] = None) -> List[Goal]:
@@ -184,46 +238,23 @@ class GoalRepository:
     @staticmethod
     def search(db: Session, query_text: str) -> List[Goal]:
         """Search goals by content or notes."""
-        search_pattern = f"%{query_text}%"
-        return (
-            db.query(Goal)
-            .filter(
-                or_(
-                    Goal.content.ilike(search_pattern),
-                    Goal.notes.ilike(search_pattern),
-                )
-            )
-            .order_by(Goal.created_at.desc())
-            .all()
-        )
+        return GoalRepository._base.search(db, query_text, 'content', 'notes')
 
     @staticmethod
     def update(db: Session, goal_id: int, **kwargs) -> Optional[Goal]:
         """Update goal fields."""
-        goal = GoalRepository.get_by_id(db, goal_id)
-        if not goal:
-            return None
-        for key, value in kwargs.items():
-            if hasattr(goal, key):
-                setattr(goal, key, value)
-        goal.updated_at = datetime.now()
-        db.commit()
-        db.refresh(goal)
-        return goal
+        return GoalRepository._base.update(db, goal_id, **kwargs)
 
     @staticmethod
     def delete(db: Session, goal_id: int) -> bool:
         """Delete a goal."""
-        goal = GoalRepository.get_by_id(db, goal_id)
-        if not goal:
-            return False
-        db.delete(goal)
-        db.commit()
-        return True
+        return GoalRepository._base.delete(db, goal_id)
 
 
 class DatavaultRepository:
     """Repository for Datavault operations."""
+
+    _base = BaseRepository(Datavault)
 
     @staticmethod
     def create(
@@ -242,7 +273,7 @@ class DatavaultRepository:
     @staticmethod
     def get_by_id(db: Session, item_id: int) -> Optional[Datavault]:
         """Get datavault item by ID."""
-        return db.query(Datavault).filter(Datavault.id == item_id).first()
+        return DatavaultRepository._base.get_by_id(db, item_id)
 
     @staticmethod
     def get_all(db: Session, filetype: Optional[str] = None) -> List[Datavault]:
@@ -255,42 +286,17 @@ class DatavaultRepository:
     @staticmethod
     def search(db: Session, query_text: str) -> List[Datavault]:
         """Search datavault items by content or notes."""
-        search_pattern = f"%{query_text}%"
-        return (
-            db.query(Datavault)
-            .filter(
-                or_(
-                    Datavault.content.ilike(search_pattern),
-                    Datavault.notes.ilike(search_pattern),
-                )
-            )
-            .order_by(Datavault.created_at.desc())
-            .all()
-        )
+        return DatavaultRepository._base.search(db, query_text, 'content', 'notes')
 
     @staticmethod
     def update(db: Session, item_id: int, **kwargs) -> Optional[Datavault]:
         """Update datavault item fields."""
-        item = DatavaultRepository.get_by_id(db, item_id)
-        if not item:
-            return None
-        for key, value in kwargs.items():
-            if hasattr(item, key):
-                setattr(item, key, value)
-        item.updated_at = datetime.now()
-        db.commit()
-        db.refresh(item)
-        return item
+        return DatavaultRepository._base.update(db, item_id, **kwargs)
 
     @staticmethod
     def delete(db: Session, item_id: int) -> bool:
         """Delete a datavault item."""
-        item = DatavaultRepository.get_by_id(db, item_id)
-        if not item:
-            return False
-        db.delete(item)
-        db.commit()
-        return True
+        return DatavaultRepository._base.delete(db, item_id)
 
 
 class AutomationRuleRepository:

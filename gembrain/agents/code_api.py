@@ -26,6 +26,59 @@ class GemBrainAPI:
         self.datavault_service = services.get("datavault_service")
 
     # =========================================================================
+    # HELPER METHODS (Reduce ~200 lines of duplicated dictification logic)
+    # =========================================================================
+
+    def _to_dict_basic(self, item, include_updated_at: bool = False) -> Dict[str, Any]:
+        """Convert item to basic dict (id, content, notes, created_at).
+
+        Args:
+            item: Model instance
+            include_updated_at: Include updated_at field
+
+        Returns:
+            Dictionary representation
+        """
+        result = {
+            "id": item.id,
+            "content": item.content,
+            "notes": item.notes,
+            "created_at": item.created_at.isoformat(),
+        }
+        if include_updated_at:
+            result["updated_at"] = item.updated_at.isoformat()
+        return result
+
+    def _to_dict_with_status(self, item, include_updated_at: bool = False) -> Dict[str, Any]:
+        """Convert item with status to dict.
+
+        Args:
+            item: Model instance with status field
+            include_updated_at: Include updated_at field
+
+        Returns:
+            Dictionary representation
+        """
+        result = self._to_dict_basic(item, include_updated_at)
+        result["status"] = item.status.value
+        return result
+
+    def _to_dict_list(self, items, has_status: bool = False) -> List[Dict[str, Any]]:
+        """Convert list of items to dicts.
+
+        Args:
+            items: List of model instances
+            has_status: Whether items have status field
+
+        Returns:
+            List of dictionaries
+        """
+        if has_status:
+            return [self._to_dict_with_status(item) for item in items]
+        else:
+            return [self._to_dict_basic(item) for item in items]
+
+    # =========================================================================
     # TASK OPERATIONS
     # =========================================================================
 
