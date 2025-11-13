@@ -152,7 +152,7 @@ class GemBrainAPI:
                 "title": t.title,
                 "status": t.status.value,
                 "due_date": t.due_date.isoformat() if t.due_date else None,
-                "project_name": t.project_name,
+                "project_name": t.project.name if t.project else None,
             }
             for t in tasks
         ]

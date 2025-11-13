@@ -721,10 +721,10 @@ class ActionExecutor:
                 "title": task.title,
                 "status": task.status.value,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project_name,
+                "project_name": task.project.name if task.project else None,
                 "note_id": task.note_id,
                 "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at.isoformat(),
+                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
             }
             for task in tasks
         ]
@@ -756,10 +756,10 @@ class ActionExecutor:
                 "title": task.title,
                 "status": task.status.value,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project_name,
+                "project_name": task.project.name if task.project else None,
                 "note_id": task.note_id,
                 "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at.isoformat(),
+                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
             }
             for task in tasks
         ]
