@@ -18,6 +18,7 @@ from ..core.services import (
 )
 from ..core.models import TaskStatus, VaultItemType
 from .code_executor import CodeExecutor
+from .code_api import GemBrainAPI
 
 
 @dataclass
@@ -79,7 +80,22 @@ class ActionExecutor:
         self.memory_service = MemoryService(db)
         self.vault_service = VaultService(db)
         self.enable_code_execution = enable_code_execution
-        self.code_executor = CodeExecutor() if enable_code_execution else None
+
+        # Create GemBrain API for code execution
+        if enable_code_execution:
+            services = {
+                "note_service": self.note_service,
+                "task_service": self.task_service,
+                "project_service": self.project_service,
+                "memory_service": self.memory_service,
+                "vault_service": self.vault_service,
+            }
+            gembrain_api = GemBrainAPI(db, services)
+            self.code_executor = CodeExecutor(gembrain_api)
+            logger.info("✓ Code executor initialized with GemBrain API access")
+        else:
+            self.code_executor = None
+
         self.max_retries = max_retries
         self.retry_delay = retry_delay
 
@@ -115,6 +131,9 @@ class ActionExecutor:
             "list_tasks": [],
             "search_tasks": ["query"],
             "list_projects": [],
+            "vault_store": ["title", "content"],
+            "vault_get": ["item_id"],
+            "vault_search": ["query"],
         }
 
         if action_type in required_fields:
@@ -265,6 +284,9 @@ class ActionExecutor:
             "list_tasks": self._list_tasks,
             "search_tasks": self._search_tasks,
             "list_projects": self._list_projects,
+            "vault_store": self._vault_store,
+            "vault_get": self._vault_get,
+            "vault_search": self._vault_search,
         }
 
         handler = handlers.get(action_type)
@@ -699,10 +721,10 @@ class ActionExecutor:
                 "title": task.title,
                 "status": task.status.value,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project_name,
+                "project_name": task.project.name if task.project else None,
                 "note_id": task.note_id,
                 "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at.isoformat(),
+                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
             }
             for task in tasks
         ]
@@ -734,10 +756,10 @@ class ActionExecutor:
                 "title": task.title,
                 "status": task.status.value,
                 "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project_name,
+                "project_name": task.project.name if task.project else None,
                 "note_id": task.note_id,
                 "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at.isoformat(),
+                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
             }
             for task in tasks
         ]
@@ -777,4 +799,101 @@ class ActionExecutor:
             "list_projects",
             f"Retrieved {len(projects_data)} projects",
             {"projects": projects_data, "count": len(projects_data)},
+        )
+
+    # Vault actions for intermediate storage
+    def _vault_store(self, action: Dict[str, Any]) -> ActionResult:
+        """Store data in vault (intermediate results).
+
+        Args:
+            action: Action with 'title' and 'content' fields
+
+        Returns:
+            ActionResult with vault item info
+        """
+        title = action.get("title", "")
+        content = action.get("content", "")
+        item_type = action.get("type", "snippet")
+
+        try:
+            vault_type = VaultItemType(item_type)
+        except ValueError:
+            vault_type = VaultItemType.SNIPPET
+
+        item = self.vault_service.add_item(title, vault_type, content)
+
+        return ActionResult(
+            True,
+            "vault_store",
+            f"Stored vault item: {item.title}",
+            {
+                "item_id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+            },
+        )
+
+    def _vault_get(self, action: Dict[str, Any]) -> ActionResult:
+        """Retrieve vault item by ID.
+
+        Args:
+            action: Action with 'item_id' field
+
+        Returns:
+            ActionResult with vault item data
+        """
+        item_id = action.get("item_id")
+
+        item = self.vault_service.get_item(item_id)
+
+        if not item:
+            return ActionResult(
+                False,
+                "vault_get",
+                f"Vault item {item_id} not found",
+            )
+
+        return ActionResult(
+            True,
+            "vault_get",
+            f"Retrieved vault item: {item.title}",
+            {
+                "item_id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+                "path_or_url": item.path_or_url,
+                "item_metadata": item.item_metadata,
+            },
+        )
+
+    def _vault_search(self, action: Dict[str, Any]) -> ActionResult:
+        """Search vault items.
+
+        Args:
+            action: Action with 'query' field
+
+        Returns:
+            ActionResult with matching vault items
+        """
+        query = action.get("query", "")
+        limit = action.get("limit", 20)
+
+        items = self.vault_service.search_items(query)[:limit]
+
+        items_data = [
+            {
+                "item_id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+                "path_or_url": item.path_or_url[:100] + "..." if len(item.path_or_url) > 100 else item.path_or_url,
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in items
+        ]
+
+        return ActionResult(
+            True,
+            "vault_search",
+            f"Found {len(items_data)} vault items matching '{query}'",
+            {"items": items_data, "count": len(items_data), "query": query},
         )
