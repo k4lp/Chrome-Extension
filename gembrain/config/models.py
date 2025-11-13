@@ -69,6 +69,20 @@ class AgentBehaviorConfig(BaseModel):
         default=True, description="Allow agent to execute Python code with full system access"
     )
 
+    # Iterative Reasoning Settings
+    enable_iterative_reasoning: bool = Field(
+        default=False, description="Enable iterative reasoning mode for complex tasks"
+    )
+    max_reasoning_iterations: int = Field(
+        default=50, ge=5, le=200, description="Maximum iterations for reasoning"
+    )
+    verification_model: str = Field(
+        default="gemini-1.5-flash", description="Model to use for verification (separate from main model)"
+    )
+    auto_verify: bool = Field(
+        default=True, description="Automatically verify reasoning results"
+    )
+
 
 class AutomationConfig(BaseModel):
     """Automation rules configuration."""

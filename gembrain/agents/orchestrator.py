@@ -8,6 +8,7 @@ from loguru import logger
 from .gemini_client import GeminiClient
 from .prompts import get_system_prompt
 from .tools import ActionExecutor, ActionResult
+from .iterative_reasoner import IterativeReasoner, ReasoningSession
 from ..config.models import Settings
 from ..core.services import NoteService, TaskService, ProjectService, MemoryService
 from ..utils.json_utils import parse_actions_from_response
@@ -135,6 +136,58 @@ class Orchestrator:
             List of ActionResults
         """
         return self._execute_actions(actions)
+
+    def run_iterative_reasoning(
+        self,
+        user_query: str,
+        max_iterations: int = 50,
+        verification_model: Optional[str] = None,
+        ui_context: Optional[UIContext] = None,
+    ) -> Tuple[ReasoningSession, bool]:
+        """Run iterative reasoning with verification.
+
+        Args:
+            user_query: User's query
+            max_iterations: Maximum iterations to run
+            verification_model: Optional separate model for verification
+            ui_context: Optional UI context
+
+        Returns:
+            Tuple of (ReasoningSession, verification_approved)
+        """
+        logger.info(f"🧠 Starting iterative reasoning: {user_query}")
+
+        # Build initial context
+        initial_context = self._build_context(ui_context)
+
+        # Create reasoner
+        reasoner = IterativeReasoner(
+            gemini_client=self.gemini_client,
+            settings=self.settings,
+            max_iterations=max_iterations,
+        )
+
+        # Run reasoning iterations
+        session = reasoner.reason(user_query, initial_context)
+
+        logger.info(
+            f"✅ Reasoning completed: {len(session.iterations)} iterations, "
+            f"Final output: {len(session.final_output or '')} chars"
+        )
+
+        # Run verification
+        logger.info("🔍 Running verification...")
+        verification_result = reasoner.verify(session, verification_model)
+
+        approved = verification_result.get("approved", False)
+
+        if approved:
+            logger.info("✅ Verification PASSED - Output approved")
+        else:
+            logger.warning("❌ Verification FAILED - Output needs more work")
+            logger.warning(f"Reason: {verification_result.get('verdict', 'Unknown')}")
+
+        return session, approved
 
     def run_automation(
         self,
