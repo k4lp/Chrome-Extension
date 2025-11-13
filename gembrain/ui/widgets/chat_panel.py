@@ -11,12 +11,15 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QFrame,
     QMessageBox,
+    QSplitter,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from loguru import logger
 
 from ...agents.orchestrator import OrchestratorResponse, UIContext
+from .conversation_view import ConversationView
+from .technical_details_view import TechnicalDetailsView
 
 
 class OrchestratorWorker(QThread):
@@ -25,7 +28,7 @@ class OrchestratorWorker(QThread):
     # Signals
     finished = pyqtSignal(object)  # OrchestratorResponse
     error = pyqtSignal(str)  # Error message
-    progress = pyqtSignal(str)  # Progress update (iteration info)
+    progress = pyqtSignal(object)  # Progress update (structured dict)
 
     def __init__(self, orchestrator, user_message, ui_context, auto_apply):
         """Initialize worker.
@@ -48,9 +51,14 @@ class OrchestratorWorker(QThread):
             logger.info("🧵 Worker thread started")
 
             # Define progress callback that emits our signal
-            def on_progress(message: str):
-                """Progress callback that emits signal."""
-                self.progress.emit(message)
+            def on_progress(progress_data):
+                """Progress callback that emits signal.
+
+                Args:
+                    progress_data: Can be string (legacy) or dict (structured)
+                """
+                # Emit as-is (dict or string)
+                self.progress.emit(progress_data)
 
             # Call orchestrator with progress callback
             response = self.orchestrator.run_user_message(
@@ -89,7 +97,7 @@ class ChatPanel(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        """Setup user interface."""
+        """Setup user interface with split-screen layout."""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -99,11 +107,24 @@ class ChatPanel(QWidget):
         title.setStyleSheet("font-size: 20px; font-weight: bold;")
         layout.addWidget(title)
 
-        # Chat history
-        self.chat_history = QTextEdit()
-        self.chat_history.setReadOnly(True)
-        self.chat_history.setPlaceholderText("Chat history will appear here...")
-        layout.addWidget(self.chat_history, stretch=1)
+        # Split-screen: Conversation (top 55%) + Technical Details (bottom 45%)
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+
+        # Upper half: Conversation view (final outputs only)
+        self.conversation_view = ConversationView()
+        self.splitter.addWidget(self.conversation_view)
+
+        # Lower half: Technical details view (reasoning, code, actions)
+        self.technical_view = TechnicalDetailsView()
+        self.splitter.addWidget(self.technical_view)
+
+        # Set 55/45 split ratio (55% top, 45% bottom)
+        # Total height = 1000 units, so 550 top, 450 bottom
+        self.splitter.setSizes([550, 450])
+        self.splitter.setStretchFactor(0, 55)  # Conversation gets 55%
+        self.splitter.setStretchFactor(1, 45)  # Technical gets 45%
+
+        layout.addWidget(self.splitter, stretch=1)
 
         # Actions preview area (scrollable)
         actions_label = QLabel("Proposed Actions:")
@@ -155,15 +176,7 @@ class ChatPanel(QWidget):
         layout.addWidget(input_frame)
 
         # Welcome message
-        self._append_system_message(
-            "Welcome to GemBrain! I'm your agentic second brain assistant.\n\n"
-            "I can help you:\n"
-            "• Capture and organize notes\n"
-            "• Manage tasks and projects\n"
-            "• Store long-term memories\n"
-            "• Run daily/weekly reviews\n\n"
-            "Just tell me what's on your mind, and I'll help structure it!"
-        )
+        self.conversation_view.show_welcome_message()
 
     def _send_message(self):
         """Send user message to orchestrator (runs in background thread)."""
@@ -253,25 +266,63 @@ class ChatPanel(QWidget):
         # Re-enable UI
         self._freeze_ui(False)
 
-    def _on_progress_update(self, progress_message: str):
+    def _on_progress_update(self, progress_data):
         """Handle progress update from worker thread.
 
         Args:
-            progress_message: Progress message (e.g., "Iteration 3/50")
+            progress_data: Progress data (dict with type, or legacy string)
         """
-        # Update the processing message with iteration progress
-        cursor = self.chat_history.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
-        current_line = cursor.selectedText()
+        # Handle both structured dict and legacy string format
+        if isinstance(progress_data, dict):
+            event_type = progress_data.get("type")
 
-        # If last line is a processing message, update it
-        if "Processing" in current_line or "Iteration" in current_line:
-            cursor.removeSelectedText()
-            cursor.deletePreviousChar()  # Remove newline
+            if event_type == "iteration_start":
+                # Show iteration marker in technical view
+                iteration = progress_data.get("iteration", 0)
+                max_iterations = progress_data.get("max_iterations", 0)
+                self.technical_view.append_reasoning_iteration(iteration, max_iterations)
 
-        # Append new progress
-        self.chat_history.append(f"<i style='color: #999;'>{progress_message}</i>")
+                # Show brief update in conversation view
+                self.conversation_view.append_system_message(
+                    f"Reasoning iteration {iteration}/{max_iterations}..."
+                )
+
+            elif event_type == "thought":
+                # Show thought in technical view
+                thought = progress_data.get("content", "")
+                self.technical_view.append_reasoning_thought(thought)
+
+            elif event_type == "observation":
+                # Show observation in technical view
+                observation = progress_data.get("content", "")
+                self.technical_view.append_reasoning_observation(observation)
+
+            elif event_type == "actions_planned":
+                # Show actions in technical view
+                actions = progress_data.get("actions", [])
+                self.technical_view.append_reasoning_action_plan(actions)
+
+            elif event_type == "action_start":
+                # Show action start in technical view
+                action_type = progress_data.get("action_type", "unknown")
+                details = progress_data.get("details", "")
+                self.technical_view.append_action_start(action_type, details)
+
+            elif event_type == "code_execution_start":
+                # Show code execution start in technical view
+                code = progress_data.get("code", "")
+                self.technical_view.append_code_execution_start(code)
+                self.technical_view.switch_to_code_tab()
+
+            elif event_type == "reasoning_complete":
+                # Show completion in technical view
+                success = progress_data.get("success", True)
+                message = progress_data.get("message", "")
+                self.technical_view.append_reasoning_completion(success, message)
+
+        elif isinstance(progress_data, str):
+            # Legacy string format - just show in conversation view
+            self.conversation_view.append_system_message(progress_data)
 
     def _show_actions(self, actions):
         """Show actions for user review.
@@ -329,24 +380,20 @@ class ChatPanel(QWidget):
             self._append_error_message(f"Error applying actions: {str(e)}")
 
     def _append_user_message(self, text: str):
-        """Append user message to chat history."""
-        self.chat_history.append(f"<b style='color: #0066cc;'>You:</b> {text}")
-        self.chat_history.append("")
+        """Append user message to conversation view."""
+        self.conversation_view.append_user_message(text)
 
     def _append_agent_message(self, text: str):
-        """Append agent message to chat history."""
-        self.chat_history.append(f"<b style='color: #00aa00;'>GemBrain:</b> {text}")
-        self.chat_history.append("")
+        """Append agent message to conversation view."""
+        self.conversation_view.append_agent_message(text)
 
     def _append_system_message(self, text: str):
-        """Append system message to chat history."""
-        self.chat_history.append(f"<i style='color: #666;'>{text}</i>")
-        self.chat_history.append("")
+        """Append system message to conversation view."""
+        self.conversation_view.append_system_message(text)
 
     def _append_error_message(self, text: str):
-        """Append error message to chat history."""
-        self.chat_history.append(f"<b style='color: #cc0000;'>Error:</b> {text}")
-        self.chat_history.append("")
+        """Append error message to conversation view."""
+        self.conversation_view.append_error_message(text)
 
     def _freeze_ui(self, freeze: bool):
         """Freeze or unfreeze UI during processing.
@@ -361,12 +408,12 @@ class ChatPanel(QWidget):
 
         if freeze:
             self.send_btn.setText("⏳ Processing...")
-            self.chat_history.append("<i style='color: #999;'>Processing your request...</i>")
+            self.conversation_view.append_system_message("Processing your request...")
         else:
             self.send_btn.setText("Send")
 
     def _show_action_results(self, results):
-        """Show action results with detailed output.
+        """Show action results in both conversation and technical views.
 
         Args:
             results: List of ActionResult objects
@@ -374,74 +421,32 @@ class ChatPanel(QWidget):
         success_count = sum(1 for r in results if r.success)
         fail_count = len(results) - success_count
 
+        # Show summary in conversation view
         self._append_system_message(
-            f"<b>✓ Executed {len(results)} actions:</b> {success_count} succeeded, {fail_count} failed"
+            f"✓ Executed {len(results)} actions: {success_count} succeeded, {fail_count} failed"
         )
 
-        for result in results:
-            # Show action type and message
-            if result.success:
-                icon = "✓"
-                color = "#00aa00"
-            else:
-                icon = "✗"
-                color = "#cc0000"
+        # Show detailed results in technical view (Actions tab)
+        self.technical_view.append_actions_summary(len(results), success_count, fail_count)
 
-            self.chat_history.append(
-                f"<b style='color: {color};'>{icon} {result.action_type}:</b> {result.message}"
+        for result in results:
+            # Add to technical view action history
+            self.technical_view.append_action_result(
+                result.action_type, result.success, result.message
             )
 
-            # Special handling for code execution
+            # Special handling for code execution - show in Code Execution tab
             if result.action_type == "execute_code" and result.data:
                 self._show_code_execution_result(result)
 
-        self.chat_history.append("")
-
     def _show_code_execution_result(self, result):
-        """Show code execution result with detailed output.
+        """Show code execution result in technical details view.
 
         Args:
             result: ActionResult from code execution
         """
-        data = result.data
+        # Show in technical view (Code Execution tab)
+        self.technical_view.append_code_execution_result(result.data)
 
-        # Create a nice code execution output box
-        output_html = "<div style='background: #f5f5f5; border-left: 4px solid #1a1a1a; padding: 12px; margin: 8px 0; font-family: monospace;'>"
-
-        if result.success:
-            output_html += "<b style='color: #00aa00;'>✓ Code Execution Successful</b><br/>"
-
-            # Show execution time if available
-            if "execution_time" in data:
-                output_html += f"<small>Execution time: {data.get('execution_time', 0):.3f}s</small><br/>"
-
-            # Show stdout
-            if data.get("stdout"):
-                output_html += "<br/><b>Output:</b><br/>"
-                output_html += f"<pre style='margin: 4px 0; white-space: pre-wrap;'>{data['stdout']}</pre>"
-
-            # Show result
-            if data.get("result"):
-                output_html += "<br/><b>Result:</b><br/>"
-                output_html += f"<code>{data['result']}</code>"
-
-            # Show stderr if any
-            if data.get("stderr"):
-                output_html += "<br/><b style='color: #cc6600;'>Warnings:</b><br/>"
-                output_html += f"<pre style='margin: 4px 0; color: #cc6600;'>{data['stderr']}</pre>"
-
-        else:
-            output_html += "<b style='color: #cc0000;'>✗ Code Execution Failed</b><br/>"
-
-            # Show error
-            if data.get("error"):
-                output_html += "<br/><b>Error:</b><br/>"
-                output_html += f"<pre style='margin: 4px 0; color: #cc0000; white-space: pre-wrap;'>{data['error']}</pre>"
-
-            # Show stderr if any
-            if data.get("stderr"):
-                output_html += "<br/><b>STDERR:</b><br/>"
-                output_html += f"<pre style='margin: 4px 0;'>{data['stderr']}</pre>"
-
-        output_html += "</div>"
-        self.chat_history.append(output_html)
+        # Switch to code execution tab to show the result
+        self.technical_view.switch_to_code_tab()
