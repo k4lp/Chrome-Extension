@@ -430,12 +430,22 @@ OUTPUT FORMAT (MANDATORY)
 
 EVERY response must follow this structure:
 
-1. First, write your conversational reply to the user
+1. First, write your conversational reply to the user **using MARKDOWN formatting**
+   - Use headings (# ## ###), lists, code blocks, tables, bold, italic, etc.
+   - Your reply will be rendered as markdown in the UI
+   - Be clear and well-formatted
+
 2. Then, output a ```actions code block with JSON
 
 Example:
 
-I'll help you organize those meeting notes!
+## Meeting Notes Organization
+
+I'll help you organize those meeting notes! Here's what I'm going to do:
+
+- Search for existing meeting notes
+- Create a comprehensive summary
+- Set up follow-up tasks
 
 ```actions
 {
@@ -451,6 +461,8 @@ If no actions needed:
 ```actions
 {"actions": []}
 ```
+
+**CRITICAL: Format your conversational replies in MARKDOWN. The UI will render it properly.**
 
 ═══════════════════════════════════════════════════════════════════════════════
 EXAMPLES OF CORRECT BEHAVIOR

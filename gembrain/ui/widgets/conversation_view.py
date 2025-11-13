@@ -4,6 +4,13 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel
 from PyQt6.QtCore import Qt
 from loguru import logger
 
+try:
+    import markdown
+    MARKDOWN_AVAILABLE = True
+except ImportError:
+    MARKDOWN_AVAILABLE = False
+    logger.warning("markdown library not available - install with: pip install markdown")
+
 
 class ConversationView(QWidget):
     """Widget for displaying conversation messages (user, agent, system).
@@ -42,6 +49,28 @@ class ConversationView(QWidget):
         self.chat_history.setPlaceholderText("Chat history will appear here...")
         layout.addWidget(self.chat_history)
 
+    def _markdown_to_html(self, text: str) -> str:
+        """Convert markdown text to HTML.
+
+        Args:
+            text: Markdown text
+
+        Returns:
+            HTML string
+        """
+        if MARKDOWN_AVAILABLE:
+            try:
+                return markdown.markdown(
+                    text,
+                    extensions=['fenced_code', 'tables', 'nl2br']
+                )
+            except Exception as e:
+                logger.warning(f"Markdown conversion failed: {e}")
+                return text.replace('\n', '<br>')
+        else:
+            # Fallback: simple newline to <br> conversion
+            return text.replace('\n', '<br>')
+
     def append_user_message(self, text: str):
         """Append user message to conversation.
 
@@ -56,11 +85,16 @@ class ConversationView(QWidget):
         """Append agent response to conversation.
 
         Args:
-            text: Agent's response text (final output only)
+            text: Agent's response text (final output only, in markdown format)
         """
-        self.chat_history.append(f"<b style='color: #00aa00;'>GemBrain:</b> {text}")
+        # Convert markdown to HTML
+        html_content = self._markdown_to_html(text)
+
+        # Add with header
+        self.chat_history.append(f"<b style='color: #00aa00;'>GemBrain:</b>")
+        self.chat_history.insertHtml(f"<div style='margin-left: 16px;'>{html_content}</div>")
         self.chat_history.append("")
-        logger.debug(f"ConversationView: Added agent message")
+        logger.debug(f"ConversationView: Added agent message (markdown rendered)")
 
     def append_system_message(self, text: str):
         """Append system message to conversation.
