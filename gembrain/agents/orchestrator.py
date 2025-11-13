@@ -207,7 +207,7 @@ class Orchestrator:
         reasoner = IterativeReasoner(
             gemini_client=self.gemini_client,
             settings=self.settings,
-            action_handler=self.action_handler,
+            action_handler=self.action_executor,
             max_iterations=max_iterations,
         )
 
