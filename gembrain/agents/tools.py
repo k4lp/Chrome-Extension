@@ -14,6 +14,7 @@ from ..core.services import (
     VaultService,
 )
 from ..core.models import TaskStatus, VaultItemType
+from .code_executor import CodeExecutor
 
 
 @dataclass
@@ -29,11 +30,12 @@ class ActionResult:
 class ActionExecutor:
     """Executes actions from agent responses."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, enable_code_execution: bool = True):
         """Initialize action executor.
 
         Args:
             db: Database session
+            enable_code_execution: Whether to allow code execution
         """
         self.db = db
         self.note_service = NoteService(db)
@@ -41,6 +43,8 @@ class ActionExecutor:
         self.project_service = ProjectService(db)
         self.memory_service = MemoryService(db)
         self.vault_service = VaultService(db)
+        self.enable_code_execution = enable_code_execution
+        self.code_executor = CodeExecutor() if enable_code_execution else None
 
     def execute_action(self, action: Dict[str, Any]) -> ActionResult:
         """Execute a single action.
@@ -68,6 +72,7 @@ class ActionExecutor:
             "create_project": self._create_project,
             "update_memory": self._update_memory,
             "add_vault_item": self._add_vault_item,
+            "execute_code": self._execute_code,
         }
 
         handler = handlers.get(action_type)
@@ -316,3 +321,54 @@ class ActionExecutor:
             f"Added vault item: {item.title}",
             {"item_id": item.id, "title": item.title},
         )
+
+    # Code execution action
+    def _execute_code(self, action: Dict[str, Any]) -> ActionResult:
+        """Execute Python code.
+
+        Args:
+            action: Action with 'code' field
+
+        Returns:
+            ActionResult with execution output
+        """
+        if not self.enable_code_execution:
+            return ActionResult(
+                False,
+                "execute_code",
+                "Code execution is disabled in settings",
+            )
+
+        code = action.get("code")
+        if not code:
+            return ActionResult(False, "execute_code", "Missing code field")
+
+        # Execute the code
+        result = self.code_executor.execute(code)
+
+        if result["success"]:
+            output_parts = []
+            if result["stdout"]:
+                output_parts.append(f"Output: {result['stdout']}")
+            if result["result"] is not None:
+                output_parts.append(f"Result: {result['result']}")
+
+            message = "\n".join(output_parts) if output_parts else "Code executed successfully"
+
+            return ActionResult(
+                True,
+                "execute_code",
+                message,
+                {
+                    "stdout": result["stdout"],
+                    "stderr": result["stderr"],
+                    "result": str(result["result"]) if result["result"] is not None else None,
+                },
+            )
+        else:
+            return ActionResult(
+                False,
+                "execute_code",
+                f"Execution failed: {result['error']}",
+                {"error": result["error"], "stderr": result["stderr"]},
+            )

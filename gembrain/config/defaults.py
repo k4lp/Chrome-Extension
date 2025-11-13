@@ -25,6 +25,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "include_context_notes": True,
         "include_context_tasks": True,
         "max_context_items": 10,
+        "enable_code_execution": True,
     },
     "automations": {
         "daily_review_enabled": False,
