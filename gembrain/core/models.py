@@ -145,7 +145,7 @@ class VaultItem(Base):
     title = Column(String(500), nullable=False, index=True)
     type = Column(SQLEnum(VaultItemType), default=VaultItemType.OTHER, nullable=False, index=True)
     path_or_url = Column(String(2000), nullable=False)
-    metadata = Column(Text, default="{}")  # JSON string
+    item_metadata = Column(Text, default="{}")  # JSON string - renamed from 'metadata' (reserved)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
     def __repr__(self) -> str:
