@@ -4,21 +4,31 @@ import sys
 import io
 import traceback
 import time
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
 from loguru import logger
 
 
 class CodeExecutor:
-    """Executes Python code in the current environment."""
+    """Executes Python code in the current environment with GemBrain API access."""
 
-    def __init__(self):
-        """Initialize code executor."""
+    def __init__(self, gembrain_api=None):
+        """Initialize code executor.
+
+        Args:
+            gembrain_api: Optional GemBrainAPI instance for code to use
+        """
         self.execution_namespace = {
             '__builtins__': __builtins__,
             'sys': sys,
         }
+
+        # Inject GemBrain API if provided
+        if gembrain_api:
+            self.execution_namespace['gb'] = gembrain_api
+            logger.info("✓ GemBrain API injected into code execution namespace as 'gb'")
+
         self.execution_count = 0
         self.execution_history = []
 

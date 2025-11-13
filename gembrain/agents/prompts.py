@@ -135,14 +135,42 @@ PROJECT & MEMORY ACTIONS:
 - add_vault_item: {title, type (file/url/snippet/other), path_or_url}
   → Adds reference item to vault
 
-CODE EXECUTION:
+CODE EXECUTION WITH GEMBRAIN API:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - execute_code: {code}
   → Executes Python code with UNRESTRICTED SYSTEM ACCESS
   → Can: import libraries, read/write files, run commands, access network,
          install packages, analyze data, create visualizations, automate tasks
-  → Use for: data analysis, file operations, web scraping, automation, anything Python can do
-  → Always explain your code and handle errors
+
+  🔥 IMPORTANT: Your code has access to 'gb' object for GemBrain API!
+  → Use gb.vault_store() to save intermediate results (avoids token limits!)
+  → Use gb.create_note(), gb.create_task() directly in code
+  → Use gb.search_notes(), gb.search_tasks() to query data
+
+  Example:
+  ```python
+  # Process data and store results directly
+  import json
+  results = analyze_data()
+  gb.vault_store("analysis_results", json.dumps(results))
+
+  # Create tasks from results
+  for item in results['todo']:
+      gb.create_task(item['title'], item['due'])
+
+  gb.log("Created 10 tasks from analysis")
+  ```
+
+VAULT OPERATIONS (for intermediate storage):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- vault_store: {title, content, type (opt)}
+  → Store intermediate data to avoid token limits
+
+- vault_get: {item_id}
+  → Retrieve stored data by ID
+
+- vault_search: {query, limit (opt)}
+  → Search vault items
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (MANDATORY)
