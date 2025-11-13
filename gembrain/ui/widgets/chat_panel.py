@@ -319,6 +319,20 @@ class ChatPanel(QWidget):
                 self.technical_view.append_code_execution_start(code)
                 self.technical_view.switch_to_code_tab()
 
+            elif event_type == "action_result":
+                # Show action result in technical view
+                action_type = progress_data.get("action_type", "unknown")
+                success = progress_data.get("success", False)
+                message = progress_data.get("message", "")
+                data = progress_data.get("data")
+                self.technical_view.append_action_result(action_type, success, message, result_data=data)
+
+            elif event_type == "code_execution_result":
+                # Show code execution result in technical view
+                data = progress_data.get("data", {})
+                self.technical_view.append_code_execution_result(data)
+                self.technical_view.switch_to_code_tab()
+
             elif event_type == "reasoning_complete":
                 # Show completion in technical view
                 success = progress_data.get("success", True)
