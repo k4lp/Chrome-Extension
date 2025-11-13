@@ -409,6 +409,28 @@ class VaultItemRepository:
         )
 
     @staticmethod
+    def update(db: Session, item_id: int, **kwargs) -> Optional[VaultItem]:
+        """Update vault item fields.
+
+        Args:
+            db: Database session
+            item_id: Vault item ID
+            **kwargs: Fields to update (title, path_or_url, item_metadata)
+
+        Returns:
+            Updated vault item or None
+        """
+        item = VaultItemRepository.get_by_id(db, item_id)
+        if not item:
+            return None
+        for key, value in kwargs.items():
+            if hasattr(item, key):
+                setattr(item, key, value)
+        db.commit()
+        db.refresh(item)
+        return item
+
+    @staticmethod
     def delete(db: Session, item_id: int) -> bool:
         """Delete a vault item."""
         item = VaultItemRepository.get_by_id(db, item_id)
