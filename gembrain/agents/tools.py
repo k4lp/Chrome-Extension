@@ -1081,7 +1081,11 @@ class ActionExecutor:
         except ValueError:
             vault_type = VaultItemType.SNIPPET
 
-        item = self.vault_service.add_item(title, vault_type, content)
+        # Store content in metadata, not path_or_url (matches code_api.vault_store pattern)
+        path_or_url = ""  # Empty for snippets
+        metadata = {"content": content}
+
+        item = self.vault_service.add_item(title, vault_type, path_or_url, metadata)
 
         return ActionResult(
             True,
@@ -1103,6 +1107,8 @@ class ActionExecutor:
         Returns:
             ActionResult with vault item data
         """
+        import json
+
         item_id = action.get("item_id")
 
         item = self.vault_service.get_item(item_id)
@@ -1114,6 +1120,12 @@ class ActionExecutor:
                 f"Vault item {item_id} not found",
             )
 
+        # Parse metadata to extract content (matches code_api.vault_get pattern)
+        try:
+            metadata = json.loads(item.item_metadata) if item.item_metadata else {}
+        except json.JSONDecodeError:
+            metadata = {}
+
         return ActionResult(
             True,
             "vault_get",
@@ -1122,8 +1134,8 @@ class ActionExecutor:
                 "item_id": item.id,
                 "title": item.title,
                 "type": item.type.value,
+                "content": metadata.get("content", item.path_or_url),  # Fallback to path_or_url for legacy items
                 "path_or_url": item.path_or_url,
-                "item_metadata": item.item_metadata,
             },
         )
 
