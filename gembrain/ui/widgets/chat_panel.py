@@ -297,6 +297,11 @@ class ChatPanel(QWidget):
                 observation = progress_data.get("content", "")
                 self.technical_view.append_reasoning_observation(observation)
 
+            elif event_type == "insights":
+                # Show insights in technical view
+                insights = progress_data.get("content", "")
+                self.technical_view.append_reasoning_insights(insights)
+
             elif event_type == "actions_planned":
                 # Show actions in technical view
                 actions = progress_data.get("actions", [])
@@ -312,6 +317,20 @@ class ChatPanel(QWidget):
                 # Show code execution start in technical view
                 code = progress_data.get("code", "")
                 self.technical_view.append_code_execution_start(code)
+                self.technical_view.switch_to_code_tab()
+
+            elif event_type == "action_result":
+                # Show action result in technical view
+                action_type = progress_data.get("action_type", "unknown")
+                success = progress_data.get("success", False)
+                message = progress_data.get("message", "")
+                data = progress_data.get("data")
+                self.technical_view.append_action_result(action_type, success, message, result_data=data)
+
+            elif event_type == "code_execution_result":
+                # Show code execution result in technical view
+                data = progress_data.get("data", {})
+                self.technical_view.append_code_execution_result(data)
                 self.technical_view.switch_to_code_tab()
 
             elif event_type == "reasoning_complete":
@@ -430,9 +449,9 @@ class ChatPanel(QWidget):
         self.technical_view.append_actions_summary(len(results), success_count, fail_count)
 
         for result in results:
-            # Add to technical view action history
+            # Add to technical view action history with full result data
             self.technical_view.append_action_result(
-                result.action_type, result.success, result.message
+                result.action_type, result.success, result.message, result_data=result.data
             )
 
             # Special handling for code execution - show in Code Execution tab

@@ -319,6 +319,7 @@ class IterativeReasoner:
         self,
         gemini_client: GeminiClient,
         settings: Settings,
+        action_handler: Any,
         max_iterations: int = 50,
     ):
         """Initialize iterative reasoner.
@@ -326,10 +327,12 @@ class IterativeReasoner:
         Args:
             gemini_client: Gemini client for reasoning
             settings: Application settings
+            action_handler: Action handler for executing actions
             max_iterations: Maximum iterations before forced stop
         """
         self.gemini_client = gemini_client
         self.settings = settings
+        self.action_handler = action_handler
         self.max_iterations = max_iterations
 
     def reason(
@@ -414,6 +417,14 @@ class IterativeReasoner:
                         "content": observations_text,
                     })
 
+                # Emit insights gained progress
+                if progress_callback and iteration.insights_gained:
+                    insights_text = "\n".join(f"• {insight}" for insight in iteration.insights_gained)
+                    progress_callback({
+                        "type": "insights",
+                        "content": insights_text,
+                    })
+
                 # Execute actions if any
                 if "next_actions" in iteration_data:
                     iteration.actions_taken = iteration_data["next_actions"]
@@ -426,7 +437,49 @@ class IterativeReasoner:
                             "actions": iteration.actions_taken,
                         })
 
-                    # Action execution would happen here (integrate with ActionExecutor)
+                    # Execute actions and capture results
+                    try:
+                        action_results = self.action_handler.execute_actions(iteration.actions_taken)
+                        iteration.action_results = [
+                            {
+                                "action_type": result.action_type,
+                                "success": result.success,
+                                "message": result.message,
+                                "data": result.data,
+                            }
+                            for result in action_results
+                        ]
+                        logger.info(f"✅ Executed {len(action_results)} actions")
+
+                        # Emit progress for each action result
+                        if progress_callback:
+                            for result in action_results:
+                                # Emit action result
+                                progress_callback({
+                                    "type": "action_result",
+                                    "action_type": result.action_type,
+                                    "success": result.success,
+                                    "message": result.message,
+                                    "data": result.data,
+                                })
+
+                                # Special handling for code execution - emit code result event
+                                if result.action_type == "execute_code" and result.data:
+                                    progress_callback({
+                                        "type": "code_execution_result",
+                                        "data": result.data,
+                                    })
+
+                    except Exception as e:
+                        logger.error(f"❌ Action execution failed: {e}")
+                        iteration.action_results = [
+                            {
+                                "action_type": "error",
+                                "success": False,
+                                "message": f"Action execution failed: {str(e)}",
+                                "data": None,
+                            }
+                        ]
                 else:
                     logger.debug("ℹ️ No actions in this iteration")
 
@@ -548,7 +601,30 @@ class IterativeReasoner:
                 iterations_summary += f"Iteration {it.iteration_number}:\n"
                 iterations_summary += f"Reasoning: {it.reasoning}\n"
                 iterations_summary += f"Observations: {', '.join(it.observations)}\n"
-                iterations_summary += f"Insights: {', '.join(it.insights_gained)}\n\n"
+                iterations_summary += f"Insights: {', '.join(it.insights_gained)}\n"
+
+                # CRITICAL: Include action results so LLM knows what happened!
+                if it.action_results:
+                    iterations_summary += f"Actions Executed: {len(it.action_results)}\n"
+                    for action_result in it.action_results:
+                        action_type = action_result.get("action_type", "unknown")
+                        success = action_result.get("success", False)
+                        message = action_result.get("message", "")
+                        data = action_result.get("data")
+
+                        status = "✓" if success else "✗"
+                        iterations_summary += f"  {status} {action_type}: {message}\n"
+
+                        # For code execution, include stdout/stderr/result
+                        if action_type == "execute_code" and data:
+                            if data.get("stdout"):
+                                iterations_summary += f"    Output: {data['stdout'][:500]}\n"
+                            if data.get("result"):
+                                iterations_summary += f"    Result: {str(data['result'])[:500]}\n"
+                            if data.get("error"):
+                                iterations_summary += f"    Error: {data['error'][:500]}\n"
+
+                iterations_summary += "\n"
 
             context_blocks.append(iterations_summary)
 

@@ -124,14 +124,36 @@ TASK ACTIONS:
 - delete_task: {task_id}
   → Deletes task (get ID first!)
 
-PROJECT & MEMORY ACTIONS:
+PROJECT ACTIONS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - create_project: {name, description (opt), tags (opt)}
-  → Creates new project
+  → Creates new project, returns project_id
 
+- update_project: {project_id (or name), new_name (opt), description (opt), status (opt), tags (opt)}
+  → Updates existing project (get ID from list_projects or search_projects first!)
+
+- delete_project: {project_id (or name)}
+  → Permanently deletes project (use carefully!)
+
+- search_projects: {query, limit (opt)}
+  → Search projects by name or description
+
+MEMORY ACTIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - update_memory: {key, content, importance (1-5)}
   → Stores/updates long-term memory about the user
 
+- list_memories: {importance_threshold (opt, default 1)}
+  → List all memories with importance >= threshold
+
+- get_memory: {key}
+  → Retrieve specific memory by key
+
+- delete_memory: {key}
+  → Delete memory by key (use carefully!)
+
+VAULT ACTIONS (for intermediate storage):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - add_vault_item: {title, type (file/url/snippet/other), path_or_url}
   → Adds reference item to vault
 
@@ -172,6 +194,15 @@ VAULT OPERATIONS (for intermediate storage):
 - vault_search: {query, limit (opt)}
   → Search vault items
 
+- vault_list: {item_type (opt), limit (opt)}
+  → List all vault items (optionally filtered by type: snippet/file/url/other)
+
+- vault_update: {item_id, title (opt), path_or_url (opt), item_metadata (opt)}
+  → Update existing vault item (get ID from vault_list or vault_search first!)
+
+- vault_delete: {item_id}
+  → Delete vault item (get ID first!)
+
 ═══════════════════════════════════════════════════════════════════════════════
 ⚠️ CRITICAL: ACTIONS vs CODE EXECUTION - WHEN TO USE WHAT
 ═══════════════════════════════════════════════════════════════════════════════
@@ -197,9 +228,10 @@ Example:
 Action types available:
 • create_note, update_note, archive_note, delete_note
 • add_task, update_task, complete_task, delete_task
-• list_notes, search_notes, list_tasks, search_tasks, list_projects
-• create_project, update_memory, add_vault_item
-• vault_store, vault_get, vault_search
+• list_notes, search_notes, list_tasks, search_tasks
+• list_projects, search_projects, create_project, update_project, delete_project
+• update_memory, list_memories, get_memory, delete_memory
+• add_vault_item, vault_store, vault_get, vault_search, vault_list, vault_update, vault_delete
 • execute_code (special - runs Python)
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -221,24 +253,43 @@ Example:
 ```
 
 gb object methods available in code:
-• gb.create_note(title, content, tags=[])
+
+Notes:
+• gb.create_note(title, content="", tags=[], pinned=False)
 • gb.update_note(note_id, title=None, content=None, tags=None)
 • gb.delete_note(note_id)
 • gb.search_notes(query, limit=20)
+
+Tasks:
 • gb.create_task(title, due_date=None, project_name=None)
 • gb.complete_task(task_id)
 • gb.delete_task(task_id)
 • gb.search_tasks(query, limit=20)
+
+Projects:
 • gb.create_project(name, description="", tags=[])
-• gb.list_projects()
+• gb.list_projects(limit=50)
+• gb.search_projects(query, limit=20)
+• gb.update_project(project_id=None, name=None, new_name=None, description=None, status=None, tags=None)
+• gb.delete_project(project_id=None, name=None)
+
+Memory:
 • gb.store_memory(key, content, importance=3)
 • gb.get_memory(key)
 • gb.list_memories(importance_threshold=1)
+• gb.delete_memory(key)
+
+Vault:
 • gb.vault_store(title, content, item_type="snippet")
 • gb.vault_get(item_id)
 • gb.vault_search(query, limit=20)
+• gb.vault_list(item_type=None, limit=50)
+• gb.vault_update(item_id, title=None, path_or_url=None, item_metadata=None)
 • gb.vault_delete(item_id)
-• gb.log(message) - Print to console
+
+Utilities:
+• gb.log(message, level="info") - Log message to console
+• gb.commit() - Explicitly commit database changes
 
 ⚠️ KEY DIFFERENCES:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
