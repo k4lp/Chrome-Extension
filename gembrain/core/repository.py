@@ -359,10 +359,10 @@ class VaultItemRepository:
         title: str,
         type: VaultItemType,
         path_or_url: str,
-        metadata: str = "{}",
+        item_metadata: str = "{}",
     ) -> VaultItem:
         """Create a new vault item."""
-        item = VaultItem(title=title, type=type, path_or_url=path_or_url, metadata=metadata)
+        item = VaultItem(title=title, type=type, path_or_url=path_or_url, item_metadata=item_metadata)
         db.add(item)
         db.commit()
         db.refresh(item)

@@ -273,8 +273,8 @@ class VaultService:
         """Add item to vault."""
         import json
 
-        metadata_str = json.dumps(metadata) if metadata else "{}"
-        item = VaultItemRepository.create(self.db, title, type, path_or_url, metadata_str)
+        item_metadata = json.dumps(metadata) if metadata else "{}"
+        item = VaultItemRepository.create(self.db, title, type, path_or_url, item_metadata)
         logger.info(f"Added vault item: {title}")
         return item
 
