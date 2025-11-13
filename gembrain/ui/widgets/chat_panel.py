@@ -136,9 +136,8 @@ class ChatPanel(QWidget):
         # Show user message
         self._append_user_message(user_text)
 
-        # Disable send button
-        self.send_btn.setEnabled(False)
-        self.send_btn.setText("Thinking...")
+        # FREEZE UI during processing
+        self._freeze_ui(True)
 
         try:
             # Get UI context
@@ -161,15 +160,8 @@ class ChatPanel(QWidget):
                 # Handle actions
                 if response.actions:
                     if auto_apply and response.action_results:
-                        # Show results
-                        self._append_system_message(
-                            f"✓ Applied {len(response.action_results)} actions automatically."
-                        )
-                        for result in response.action_results:
-                            if not result.success:
-                                self._append_error_message(
-                                    f"Action failed: {result.message}"
-                                )
+                        # Show results with details
+                        self._show_action_results(response.action_results)
                     else:
                         # Show actions for review
                         self._show_actions(response.actions)
@@ -179,9 +171,8 @@ class ChatPanel(QWidget):
             self._append_error_message(f"Error: {str(e)}")
 
         finally:
-            # Re-enable send button
-            self.send_btn.setEnabled(True)
-            self.send_btn.setText("Send")
+            # UNFREEZE UI
+            self._freeze_ui(False)
 
     def _show_actions(self, actions):
         """Show actions for user review.
@@ -257,3 +248,101 @@ class ChatPanel(QWidget):
         """Append error message to chat history."""
         self.chat_history.append(f"<b style='color: #cc0000;'>Error:</b> {text}")
         self.chat_history.append("")
+
+    def _freeze_ui(self, freeze: bool):
+        """Freeze or unfreeze UI during processing.
+
+        Args:
+            freeze: Whether to freeze the UI
+        """
+        self.input_box.setEnabled(not freeze)
+        self.send_btn.setEnabled(not freeze)
+        self.auto_apply_check.setEnabled(not freeze)
+        self.apply_btn.setEnabled(not freeze and len(self.pending_actions) > 0)
+
+        if freeze:
+            self.send_btn.setText("⏳ Processing...")
+            self.chat_history.append("<i style='color: #999;'>Processing your request...</i>")
+        else:
+            self.send_btn.setText("Send")
+
+    def _show_action_results(self, results):
+        """Show action results with detailed output.
+
+        Args:
+            results: List of ActionResult objects
+        """
+        success_count = sum(1 for r in results if r.success)
+        fail_count = len(results) - success_count
+
+        self._append_system_message(
+            f"<b>✓ Executed {len(results)} actions:</b> {success_count} succeeded, {fail_count} failed"
+        )
+
+        for result in results:
+            # Show action type and message
+            if result.success:
+                icon = "✓"
+                color = "#00aa00"
+            else:
+                icon = "✗"
+                color = "#cc0000"
+
+            self.chat_history.append(
+                f"<b style='color: {color};'>{icon} {result.action_type}:</b> {result.message}"
+            )
+
+            # Special handling for code execution
+            if result.action_type == "execute_code" and result.data:
+                self._show_code_execution_result(result)
+
+        self.chat_history.append("")
+
+    def _show_code_execution_result(self, result):
+        """Show code execution result with detailed output.
+
+        Args:
+            result: ActionResult from code execution
+        """
+        data = result.data
+
+        # Create a nice code execution output box
+        output_html = "<div style='background: #f5f5f5; border-left: 4px solid #1a1a1a; padding: 12px; margin: 8px 0; font-family: monospace;'>"
+
+        if result.success:
+            output_html += "<b style='color: #00aa00;'>✓ Code Execution Successful</b><br/>"
+
+            # Show execution time if available
+            if "execution_time" in data:
+                output_html += f"<small>Execution time: {data.get('execution_time', 0):.3f}s</small><br/>"
+
+            # Show stdout
+            if data.get("stdout"):
+                output_html += "<br/><b>Output:</b><br/>"
+                output_html += f"<pre style='margin: 4px 0; white-space: pre-wrap;'>{data['stdout']}</pre>"
+
+            # Show result
+            if data.get("result"):
+                output_html += "<br/><b>Result:</b><br/>"
+                output_html += f"<code>{data['result']}</code>"
+
+            # Show stderr if any
+            if data.get("stderr"):
+                output_html += "<br/><b style='color: #cc6600;'>Warnings:</b><br/>"
+                output_html += f"<pre style='margin: 4px 0; color: #cc6600;'>{data['stderr']}</pre>"
+
+        else:
+            output_html += "<b style='color: #cc0000;'>✗ Code Execution Failed</b><br/>"
+
+            # Show error
+            if data.get("error"):
+                output_html += "<br/><b>Error:</b><br/>"
+                output_html += f"<pre style='margin: 4px 0; color: #cc0000; white-space: pre-wrap;'>{data['error']}</pre>"
+
+            # Show stderr if any
+            if data.get("stderr"):
+                output_html += "<br/><b>STDERR:</b><br/>"
+                output_html += f"<pre style='margin: 4px 0;'>{data['stderr']}</pre>"
+
+        output_html += "</div>"
+        self.chat_history.append(output_html)

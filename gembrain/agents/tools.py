@@ -59,6 +59,11 @@ class ActionExecutor:
         if not action_type:
             return ActionResult(False, "unknown", "Missing action type")
 
+        # Log action start
+        logger.info("─" * 60)
+        logger.info(f"EXECUTING ACTION: {action_type}")
+        logger.info(f"Parameters: {action}")
+
         # Route to appropriate handler
         handlers = {
             "create_note": self._create_note,
@@ -77,12 +82,23 @@ class ActionExecutor:
 
         handler = handlers.get(action_type)
         if not handler:
+            logger.error(f"Unknown action type: {action_type}")
             return ActionResult(False, action_type, f"Unknown action type: {action_type}")
 
         try:
-            return handler(action)
+            result = handler(action)
+
+            # Log result
+            if result.success:
+                logger.info(f"✓ ACTION SUCCESS: {result.message}")
+            else:
+                logger.error(f"✗ ACTION FAILED: {result.message}")
+
+            return result
         except Exception as e:
-            logger.error(f"Error executing action {action_type}: {e}")
+            logger.error(f"✗ ERROR executing action {action_type}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return ActionResult(False, action_type, f"Error: {str(e)}")
 
     def execute_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
@@ -94,11 +110,24 @@ class ActionExecutor:
         Returns:
             List of ActionResults
         """
+        logger.warning("=" * 60)
+        logger.warning(f"EXECUTING ACTION BATCH: {len(actions)} actions")
+        logger.warning("=" * 60)
+
         results = []
-        for action in actions:
+        for i, action in enumerate(actions, 1):
+            logger.info(f"Action {i}/{len(actions)}")
             result = self.execute_action(action)
             results.append(result)
-            logger.info(f"Action {result.action_type}: {result.message}")
+
+        # Summary
+        success_count = sum(1 for r in results if r.success)
+        fail_count = len(results) - success_count
+
+        logger.warning("=" * 60)
+        logger.warning(f"BATCH COMPLETE: {success_count} succeeded, {fail_count} failed")
+        logger.warning("=" * 60)
+
         return results
 
     # Note actions
@@ -353,16 +382,22 @@ class ActionExecutor:
             if result["result"] is not None:
                 output_parts.append(f"Result: {result['result']}")
 
-            message = "\n".join(output_parts) if output_parts else "Code executed successfully"
+            exec_time = result.get("execution_time", 0)
+            message = (
+                f"Code executed in {exec_time:.3f}s. "
+                + ("\n".join(output_parts) if output_parts else "No output")
+            )
 
             return ActionResult(
                 True,
                 "execute_code",
                 message,
                 {
+                    "execution_id": result.get("execution_id"),
                     "stdout": result["stdout"],
                     "stderr": result["stderr"],
                     "result": str(result["result"]) if result["result"] is not None else None,
+                    "execution_time": exec_time,
                 },
             )
         else:
@@ -370,5 +405,10 @@ class ActionExecutor:
                 False,
                 "execute_code",
                 f"Execution failed: {result['error']}",
-                {"error": result["error"], "stderr": result["stderr"]},
+                {
+                    "execution_id": result.get("execution_id"),
+                    "error": result["error"],
+                    "stderr": result["stderr"],
+                    "execution_time": result.get("execution_time", 0),
+                },
             )
