@@ -320,12 +320,17 @@ class ChatPanel(QWidget):
                 self.technical_view.switch_to_code_tab()
 
             elif event_type == "action_result":
-                # Show action result in technical view
+                # Show action result in both Actions tab AND Reasoning tab
                 action_type = progress_data.get("action_type", "unknown")
                 success = progress_data.get("success", False)
                 message = progress_data.get("message", "")
                 data = progress_data.get("data")
+
+                # Add to Actions tab (structured action cards)
                 self.technical_view.append_action_result(action_type, success, message, result_data=data)
+
+                # ALSO add to Reasoning tab (collapsible within current iteration)
+                self.technical_view.append_reasoning_action_result(action_type, success, message, result_data=data)
 
             elif event_type == "code_execution_result":
                 # Show code execution result in technical view

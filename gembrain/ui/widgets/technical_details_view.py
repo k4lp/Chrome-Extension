@@ -279,6 +279,99 @@ class TechnicalDetailsView(QWidget):
         self.current_iteration.add_widget(label)
         self.current_iteration.add_widget(text_widget)
 
+    def append_reasoning_action_result(self, action_type: str, success: bool, message: str, result_data: dict = None):
+        """Append action execution result to current reasoning iteration (collapsible).
+
+        Args:
+            action_type: Type of action executed
+            success: Whether action succeeded
+            message: Result message
+            result_data: Optional result data (for code execution: stdout, stderr, result, error)
+        """
+        if not self.current_iteration:
+            return
+
+        # Create collapsible section for this action result
+        status_icon = "✅" if success else "❌"
+        collapsible_title = f"{status_icon} {action_type}"
+        action_result_box = CollapsibleBox(collapsible_title)
+        action_result_box.set_expanded(False)  # Collapsed by default to keep UI clean
+
+        # Status message
+        color = "#00aa00" if success else "#cc0000"
+        status_label = QLabel(f"<b style='color: {color};'>Status:</b> {message}")
+        status_label.setStyleSheet("padding: 4px; font-size: 11px;")
+        action_result_box.add_widget(status_label)
+
+        # For code execution, show all outputs
+        if action_type == "execute_code" and result_data:
+            stdout = result_data.get("stdout", "")
+            stderr = result_data.get("stderr", "")
+            result = result_data.get("result")
+            error = result_data.get("error", "")
+            exec_time = result_data.get("execution_time", 0.0)
+
+            # Execution time
+            time_label = QLabel(f"<b>⏱️ Execution Time:</b> {exec_time:.3f}s")
+            time_label.setStyleSheet("padding: 2px; font-size: 10px;")
+            action_result_box.add_widget(time_label)
+
+            # Stdout output
+            if stdout:
+                output_label = QLabel("<b style='color: #0066cc;'>📤 Output (stdout):</b>")
+                output_label.setStyleSheet("padding: 4px 0; font-size: 10px;")
+                output_html = f"<pre style='background: #f0f8ff; padding: 6px; border-radius: 3px; color: #000; font-size: 10px;'>{stdout}</pre>"
+                output_widget = self._create_styled_text_widget(output_html, monospace=True)
+                output_widget.setMaximumHeight(150)
+                action_result_box.add_widget(output_label)
+                action_result_box.add_widget(output_widget)
+
+            # Return value
+            if result is not None:
+                result_label = QLabel("<b style='color: #00aa00;'>🎯 Return Value:</b>")
+                result_label.setStyleSheet("padding: 4px 0; font-size: 10px;")
+                result_html = f"<pre style='background: #f0fff0; padding: 6px; border-radius: 3px; font-size: 10px;'>{str(result)}</pre>"
+                result_widget = self._create_styled_text_widget(result_html, monospace=True)
+                result_widget.setMaximumHeight(150)
+                action_result_box.add_widget(result_label)
+                action_result_box.add_widget(result_widget)
+
+            # Stderr output
+            if stderr:
+                stderr_label = QLabel("<b style='color: #ff6600;'>⚠️ Stderr:</b>")
+                stderr_label.setStyleSheet("padding: 4px 0; font-size: 10px;")
+                stderr_html = f"<pre style='background: #fff8f0; padding: 6px; border-radius: 3px; color: #ff6600; font-size: 10px;'>{stderr}</pre>"
+                stderr_widget = self._create_styled_text_widget(stderr_html, monospace=True)
+                stderr_widget.setMaximumHeight(150)
+                action_result_box.add_widget(stderr_label)
+                action_result_box.add_widget(stderr_widget)
+
+            # Error
+            if error:
+                error_label = QLabel("<b style='color: #cc0000;'>❌ Error:</b>")
+                error_label.setStyleSheet("padding: 4px 0; font-size: 10px;")
+                error_html = f"<pre style='background: #fff0f0; padding: 6px; border-radius: 3px; color: #cc0000; font-size: 10px;'>{error}</pre>"
+                error_widget = self._create_styled_text_widget(error_html, monospace=True)
+                error_widget.setMaximumHeight(150)
+                action_result_box.add_widget(error_label)
+                action_result_box.add_widget(error_widget)
+
+        # For other actions, show result data if available
+        elif result_data:
+            import json
+            data_label = QLabel("<b>📋 Result Data:</b>")
+            data_label.setStyleSheet("padding: 4px 0; font-size: 10px;")
+            data_str = json.dumps(result_data, indent=2, default=str)
+            data_html = f"<pre style='background: #f8f8f8; padding: 6px; border-radius: 3px; font-size: 10px;'>{data_str}</pre>"
+            data_widget = self._create_styled_text_widget(data_html, monospace=True)
+            data_widget.setMaximumHeight(150)
+            action_result_box.add_widget(data_label)
+            action_result_box.add_widget(data_widget)
+
+        # Add to current iteration
+        self.current_iteration.add_widget(action_result_box)
+        logger.debug(f"TechnicalDetailsView: Added action result {action_type} to reasoning iteration")
+
     def append_reasoning_completion(self, success: bool, message: str, summary_data: dict = None):
         """Append completion status to current iteration.
 
