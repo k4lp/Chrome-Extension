@@ -88,6 +88,21 @@ class CodeExecutor:
             logger.error(f"Code execution #{execution_id} FAILED")
             logger.error(f"Error:\n{error}")
 
+            # Rollback database session if there was a database error
+            if 'gb' in self.execution_namespace:
+                try:
+                    gb_api = self.execution_namespace['gb']
+                    # Access all services and rollback their sessions
+                    for service_attr in ['note_service', 'task_service', 'project_service',
+                                         'memory_service', 'vault_service']:
+                        if hasattr(gb_api, service_attr):
+                            service = getattr(gb_api, service_attr)
+                            if hasattr(service, 'db'):
+                                service.db.rollback()
+                                logger.info(f"🔄 Rolled back {service_attr} session")
+                except Exception as rollback_error:
+                    logger.error(f"Error during rollback: {rollback_error}")
+
         execution_time = time.time() - start_time
         stdout_text = stdout_capture.getvalue()
         stderr_text = stderr_capture.getvalue()

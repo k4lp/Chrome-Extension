@@ -405,17 +405,18 @@ class GemBrainAPI:
         return success
 
     # Vault Operations (for intermediate data storage)
-    def vault_store(self, title: str, content: str, item_type: str = "snippet"):
+    def vault_store(self, title: str, content: Any, item_type: str = "snippet"):
         """Store data in vault (useful for intermediate results).
 
         Args:
             title: Item title
-            content: Item content/data
+            content: Item content/data (can be string, dict, list, or any JSON-serializable object)
             item_type: Type (snippet, file, url, other)
 
         Returns:
             Vault item object
         """
+        import json
         from ..core.models import VaultItemType
 
         try:
@@ -423,13 +424,27 @@ class GemBrainAPI:
         except ValueError:
             vault_type = VaultItemType.SNIPPET
 
-        item = self.vault_service.add_item(title, vault_type, content)
+        # Handle content serialization
+        if isinstance(content, str):
+            # String content - store directly in metadata
+            path_or_url = ""  # Empty for snippets
+            metadata = {"content": content}
+        elif isinstance(content, (dict, list)):
+            # Complex objects - serialize to JSON in metadata
+            path_or_url = ""  # Empty for snippets
+            metadata = {"content": content}
+        else:
+            # Other types - convert to string
+            path_or_url = ""  # Empty for snippets
+            metadata = {"content": str(content)}
+
+        item = self.vault_service.add_item(title, vault_type, path_or_url, metadata)
         logger.info(f"💾 Code stored vault item: {title} (id={item.id})")
         return {
             "id": item.id,
             "title": item.title,
             "type": item.type.value,
-            "path_or_url": item.path_or_url,
+            "content": metadata.get("content"),
         }
 
     def vault_get(self, item_id: int):
@@ -439,16 +454,24 @@ class GemBrainAPI:
             item_id: Vault item ID
 
         Returns:
-            Vault item object
+            Vault item object with content
         """
+        import json
+
         item = self.vault_service.get_item(item_id)
         if item:
+            # Parse metadata to get content
+            try:
+                metadata = json.loads(item.item_metadata) if item.item_metadata else {}
+            except json.JSONDecodeError:
+                metadata = {}
+
             return {
                 "id": item.id,
                 "title": item.title,
                 "type": item.type.value,
+                "content": metadata.get("content", item.path_or_url),  # Fallback to path_or_url for legacy items
                 "path_or_url": item.path_or_url,
-                "item_metadata": item.item_metadata,
             }
         return None
 
