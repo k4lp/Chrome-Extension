@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from loguru import logger
 
-from ...core.services import TaskService, NoteService
+from ...core.services import TaskService, MemoryService
 from ...core.models import TaskStatus
 
 
@@ -30,7 +30,7 @@ class ContextPanel(QWidget):
         self.db_session = db_session
         self.settings = settings
         self.task_service = TaskService(db_session)
-        self.note_service = NoteService(db_session)
+        self.memory_service = MemoryService(db_session)
 
         self._setup_ui()
 
@@ -54,14 +54,14 @@ class ContextPanel(QWidget):
         self.tasks_list.setMaximumHeight(200)
         layout.addWidget(self.tasks_list)
 
-        # Recent notes
-        notes_label = QLabel("Recent Notes:")
-        notes_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
-        layout.addWidget(notes_label)
+        # Recent memories
+        memories_label = QLabel("Recent Memories:")
+        memories_label.setStyleSheet("font-weight: bold; margin-top: 8px;")
+        layout.addWidget(memories_label)
 
-        self.notes_list = QListWidget()
-        self.notes_list.setMaximumHeight(200)
-        layout.addWidget(self.notes_list)
+        self.memories_list = QListWidget()
+        self.memories_list.setMaximumHeight(200)
+        layout.addWidget(self.memories_list)
 
         layout.addStretch()
 
@@ -70,12 +70,14 @@ class ContextPanel(QWidget):
         # Refresh tasks
         self.tasks_list.clear()
         today_tasks = self.task_service.get_today_tasks()
-        todo_tasks = self.task_service.get_tasks_by_status(TaskStatus.TODO)[:5]
-        all_tasks = today_tasks + [t for t in todo_tasks if t not in today_tasks]
+        pending_tasks = self.task_service.get_tasks_by_status(TaskStatus.PENDING)[:5]
+        all_tasks = today_tasks + [t for t in pending_tasks if t not in today_tasks]
 
         for task in all_tasks[:10]:
-            icon = "✓" if task.status == TaskStatus.DONE else "○"
-            item = QListWidgetItem(f"{icon} {task.title}")
+            icon = "✓" if task.status == TaskStatus.COMPLETED else "○"
+            # Truncate content to 50 characters
+            content_preview = task.content[:50] + "..." if len(task.content) > 50 else task.content
+            item = QListWidgetItem(f"{icon} {content_preview}")
             self.tasks_list.addItem(item)
 
         if not all_tasks:
@@ -83,15 +85,17 @@ class ContextPanel(QWidget):
             item.setForeground(Qt.GlobalColor.gray)
             self.tasks_list.addItem(item)
 
-        # Refresh notes
-        self.notes_list.clear()
-        recent_notes = self.note_service.get_recent_notes(5)
+        # Refresh memories
+        self.memories_list.clear()
+        recent_memories = self.memory_service.get_all_memories(limit=5)
 
-        for note in recent_notes:
-            item = QListWidgetItem(note.title)
-            self.notes_list.addItem(item)
+        for memory in recent_memories:
+            # Truncate content to 60 characters
+            content_preview = memory.content[:60] + "..." if len(memory.content) > 60 else memory.content
+            item = QListWidgetItem(content_preview)
+            self.memories_list.addItem(item)
 
-        if not recent_notes:
-            item = QListWidgetItem("No recent notes")
+        if not recent_memories:
+            item = QListWidgetItem("No recent memories")
             item.setForeground(Qt.GlobalColor.gray)
-            self.notes_list.addItem(item)
+            self.memories_list.addItem(item)
