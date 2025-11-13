@@ -358,21 +358,27 @@ class IterativeReasoner:
 
             # Build context for this iteration
             context_blocks = self._build_iteration_context(session, initial_context)
+            logger.debug(f"📦 Context blocks count: {len(context_blocks)}")
 
             # Generate reasoning for this iteration
             try:
+                logger.debug(f"🤖 Calling Gemini API for iteration {iteration_count}")
                 response = self.gemini_client.generate(
                     system_prompt=ITERATIVE_REASONING_PROMPT,
                     user_message=f"Query: {user_query}\n\nContinue reasoning. Current iteration: {iteration_count}",
                     context_blocks=context_blocks,
                 )
+                logger.debug(f"📨 Received response (length: {len(response)} chars)")
 
                 # Parse iteration response
                 iteration_data = self._parse_iteration_response(response)
 
                 if not iteration_data:
-                    logger.error("Failed to parse iteration response")
+                    logger.error("❌ Failed to parse iteration response - no iteration_data returned")
+                    logger.error(f"Response preview: {response[:500]}")
                     break
+
+                logger.debug(f"✅ Parsed iteration data: {json.dumps(iteration_data, indent=2)}")
 
                 # Create iteration object
                 iteration = ReasoningIteration(
@@ -381,22 +387,32 @@ class IterativeReasoner:
                     observations=iteration_data.get("observations", []),
                     insights_gained=iteration_data.get("insights_gained", []),
                 )
+                logger.debug(f"📝 Created iteration object with {len(iteration.observations)} observations")
 
                 # Execute actions if any
                 if "next_actions" in iteration_data:
                     iteration.actions_taken = iteration_data["next_actions"]
+                    logger.info(f"🎬 {len(iteration.actions_taken)} actions to execute")
                     # Action execution would happen here (integrate with ActionExecutor)
+                else:
+                    logger.debug("ℹ️ No actions in this iteration")
 
                 session.iterations.append(iteration)
 
                 # Check if final
-                if iteration_data.get("is_final"):
+                is_final = iteration_data.get("is_final", False)
+                logger.info(f"🏁 is_final: {is_final}")
+
+                if is_final:
                     session.final_output = iteration_data.get("final_output", "")
                     session.completion_reason = iteration_data.get("completion_reason", "")
                     session.is_complete = True
                     session.completed_at = datetime.now()
                     logger.info(f"✅ Reasoning complete after {iteration_count} iterations")
+                    logger.info(f"📤 Final output length: {len(session.final_output)} chars")
                     break
+                else:
+                    logger.debug(f"⏩ Continuing to next iteration (not final)")
 
             except Exception as e:
                 logger.error(f"Error in iteration {iteration_count}: {e}")
@@ -537,15 +553,22 @@ Insights Gained:
         """Parse iteration response from model."""
         try:
             # Extract ```iteration block
+            logger.debug("🔍 Searching for ```iteration block in response")
             match = re.search(r"```iteration\s*\n(.*?)\n```", response, re.DOTALL)
             if match:
                 json_str = match.group(1)
-                return json.loads(json_str)
+                logger.debug(f"✅ Found ```iteration block (length: {len(json_str)} chars)")
+                logger.debug(f"JSON string preview: {json_str[:200]}")
+                parsed = json.loads(json_str)
+                logger.debug(f"✅ Successfully parsed JSON with keys: {list(parsed.keys())}")
+                return parsed
             else:
-                logger.error("No ```iteration block found in response")
+                logger.error("❌ No ```iteration block found in response")
+                logger.error(f"Response sample (first 1000 chars): {response[:1000]}")
                 return None
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse iteration JSON: {e}")
+            logger.error(f"❌ Failed to parse iteration JSON: {e}")
+            logger.error(f"JSON string that failed: {json_str[:500] if 'json_str' in locals() else 'N/A'}")
             return None
 
     def _parse_verification_response(self, response: str) -> Dict[str, Any]:

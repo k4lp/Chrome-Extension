@@ -211,6 +211,17 @@ class TaskRepository:
         )
 
     @staticmethod
+    def search(db: Session, query_text: str) -> List[Task]:
+        """Search tasks by title."""
+        search_pattern = f"%{query_text}%"
+        return (
+            db.query(Task)
+            .filter(Task.title.ilike(search_pattern))
+            .order_by(Task.created_at.desc())
+            .all()
+        )
+
+    @staticmethod
     def update(db: Session, task_id: int, **kwargs) -> Optional[Task]:
         """Update task fields."""
         task = TaskRepository.get_by_id(db, task_id)
@@ -380,6 +391,22 @@ class VaultItemRepository:
         if type:
             query = query.filter(VaultItem.type == type)
         return query.order_by(VaultItem.created_at.desc()).all()
+
+    @staticmethod
+    def search(db: Session, query_text: str) -> List[VaultItem]:
+        """Search vault items by title or path_or_url."""
+        search_pattern = f"%{query_text}%"
+        return (
+            db.query(VaultItem)
+            .filter(
+                or_(
+                    VaultItem.title.ilike(search_pattern),
+                    VaultItem.path_or_url.ilike(search_pattern),
+                )
+            )
+            .order_by(VaultItem.created_at.desc())
+            .all()
+        )
 
     @staticmethod
     def delete(db: Session, item_id: int) -> bool:

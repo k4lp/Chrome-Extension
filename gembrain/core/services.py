@@ -157,6 +157,10 @@ class TaskService:
         """Get overdue tasks."""
         return TaskRepository.get_overdue(self.db)
 
+    def search_tasks(self, query: str) -> List[Task]:
+        """Search tasks by title."""
+        return TaskRepository.search(self.db, query)
+
     def update_task(self, task_id: int, **kwargs) -> Optional[Task]:
         """Update task."""
         return TaskRepository.update(self.db, task_id, **kwargs)
@@ -285,6 +289,10 @@ class VaultService:
     def get_all_items(self, type: Optional[VaultItemType] = None) -> List[VaultItem]:
         """Get all vault items."""
         return VaultItemRepository.get_all(self.db, type)
+
+    def search_items(self, query: str) -> List[VaultItem]:
+        """Search vault items by title or path_or_url."""
+        return VaultItemRepository.search(self.db, query)
 
     def delete_item(self, item_id: int) -> bool:
         """Delete vault item."""
