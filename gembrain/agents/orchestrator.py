@@ -101,8 +101,16 @@ class Orchestrator:
                     progress_callback=progress_callback,
                 )
 
-                # Use final output as reply
-                reply_text = session.final_output or "Reasoning completed but no output generated."
+                # Use final output as reply, with intelligent fallback to verification summary
+                reply_text = session.final_output
+                if not reply_text or reply_text.strip() == "":
+                    # Fallback: Use verification's session summary if available
+                    if session.verification_result and session.verification_result.get("session_summary"):
+                        reply_text = session.verification_result["session_summary"]
+                        logger.info("📝 Using verification session_summary as fallback output")
+                    else:
+                        reply_text = "Reasoning completed but no output generated."
+                        logger.warning("⚠️ No final_output and no verification summary available")
 
                 # Extract actions from all iterations
                 actions = []

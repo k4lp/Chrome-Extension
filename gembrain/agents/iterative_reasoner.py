@@ -270,9 +270,15 @@ You will receive:
 1. The original user query
 2. The complete reasoning log (all iterations)
 3. All actions taken and their results
-4. The proposed final output
+4. The proposed final output (may be empty!)
 
-Your job: Decide if this work is acceptable or needs more iterations.
+Your jobs:
+1. Decide if this work is acceptable or needs more iterations
+2. **ALWAYS provide session_summary** - a user-facing markdown summary of what was accomplished
+3. If approved: false, provide specific recommendations for what needs to be done next
+
+CRITICAL: Even if final_output is missing, you must analyze the iterations and action results
+to create a helpful session_summary that the user can understand.
 
 ═══════════════════════════════════════════════════════════════════════════════
 VERIFICATION CRITERIA (ALL must be satisfied)
@@ -326,15 +332,24 @@ OUTPUT FORMAT (MANDATORY)
   "weaknesses": ["<weakness 1>", "<weakness 2>", ...],
   "missing_elements": ["<what's missing 1>", ...],
   "verdict": "<detailed explanation of your decision>",
-  "recommendation": "<what should happen next>"
+  "recommendation": "<what should happen next>",
+  "session_summary": "<markdown-formatted summary of what was accomplished during the session, including action results. This will be shown to the user if final_output is missing. Be comprehensive and include specific details about what was done.>"
 }
 ```
 
 IMPORTANT:
 - Set approved: true ONLY if ALL criteria score >= 8/10
 - Be STRICT - this is quality control
-- If approved: false, explain exactly what's missing
 - Minimum confidence for approval: 0.85
+- **ALWAYS provide session_summary** - This is MANDATORY even if approved: false
+  * Analyze all iterations and action results
+  * Create user-facing markdown summary of what was accomplished
+  * Include specific details: what actions ran, what succeeded, what data was collected
+  * This will be shown to the user if final_output is missing
+- **ALWAYS provide recommendation** when approved: false
+  * Be specific: what exact steps should be taken next?
+  * Example: "Need to execute code to retrieve project list, then create summary note"
+  * Help the system understand what's missing to complete the task
 """
 
 
@@ -545,21 +560,13 @@ class IterativeReasoner:
             session.completion_reason = f"Maximum iterations ({self.max_iterations}) reached"
             session.completed_at = datetime.now()
 
-            # FIX 1: Extract final output from last iteration's reasoning
-            # This ensures user always gets output even if LLM didn't set is_final: true
-            if session.iterations:
-                last_iteration = session.iterations[-1]
-                if last_iteration.reasoning:
-                    session.final_output = last_iteration.reasoning
-                    logger.info(f"✅ Extracted final output from last iteration ({len(session.final_output)} chars)")
-                else:
-                    session.final_output = "Reasoning iterations completed. Check the Reasoning tab for detailed logs."
-                    logger.warning("⚠️ Last iteration has no reasoning text")
+            # Note: final_output may be empty here if LLM never set is_final: true
+            # The verification step will generate session_summary which will be used as fallback
+            if not session.final_output:
+                logger.warning(f"⚠️ Forced stop after {self.max_iterations} iterations without final_output")
+                logger.info("📝 Verification will provide session_summary as fallback")
             else:
-                session.final_output = "No iterations completed."
-                logger.warning("⚠️ No iterations found in session")
-
-            logger.warning(f"⚠️ Forced stop after {self.max_iterations} iterations")
+                logger.warning(f"⚠️ Forced stop after {self.max_iterations} iterations (has final_output)")
 
         return session
 
