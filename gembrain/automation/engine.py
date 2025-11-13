@@ -9,7 +9,7 @@ from loguru import logger
 
 from ..config.models import Settings
 from ..agents.orchestrator import Orchestrator
-from ..core.services import NoteService, TaskService, AutomationService
+from ..core.services import TaskService, MemoryService, AutomationService
 from ..core.models import AutomationTrigger
 
 
@@ -30,8 +30,8 @@ class AutomationEngine:
         self.scheduler = BackgroundScheduler()
 
         # Services
-        self.note_service = NoteService(db)
         self.task_service = TaskService(db)
+        self.memory_service = MemoryService(db)
         self.automation_service = AutomationService(db)
 
     def start(self) -> None:
@@ -154,7 +154,7 @@ class AutomationEngine:
         try:
             # Gather today's context
             today_tasks = self.task_service.get_today_tasks()
-            recent_notes = self.note_service.get_recent_notes(limit=5)
+            recent_memories = self.memory_service.get_all_memories(limit=5)
 
             # Build context
             context = {}
@@ -162,29 +162,29 @@ class AutomationEngine:
             if today_tasks:
                 from ..core.models import TaskStatus
 
-                completed = [t for t in today_tasks if t.status == TaskStatus.DONE]
-                pending = [t for t in today_tasks if t.status != TaskStatus.DONE]
+                completed = [t for t in today_tasks if t.status == TaskStatus.COMPLETED]
+                pending = [t for t in today_tasks if t.status != TaskStatus.COMPLETED]
 
                 context["Today's Tasks"] = (
                     f"Completed ({len(completed)}):\n"
-                    + "\n".join([f"- {t.title}" for t in completed])
+                    + "\n".join([f"- {t.content[:100]}" for t in completed])
                     + f"\n\nPending ({len(pending)}):\n"
-                    + "\n".join([f"- {t.title}" for t in pending])
+                    + "\n".join([f"- {t.content[:100]}" for t in pending])
                 )
 
-            if recent_notes:
-                context["Recent Notes"] = "\n".join(
-                    [f"- {n.title} (updated {n.updated_at.date()})" for n in recent_notes]
+            if recent_memories:
+                context["Recent Memories"] = "\n".join(
+                    [f"- {m.content[:100]} (updated {m.updated_at.date()})" for m in recent_memories]
                 )
 
             # Agent task
-            agent_task = """Create a brief daily review note summarizing:
+            agent_task = """Create a brief daily review summarizing:
 1. Tasks completed today
 2. Tasks still pending
-3. Key notes or thoughts from today
-4. Any insights or reflections
+3. Key insights from today's memories
+4. Any reflections or learnings
 
-Title the note with today's date and tag it with #daily-review."""
+Store the review summary in the datavault with filetype 'md' and notes 'daily-review'."""
 
             # Run orchestrator
             response = self.orchestrator.run_automation(
@@ -216,40 +216,40 @@ Title the note with today's date and tag it with #daily-review."""
             all_tasks = self.task_service.get_all_tasks()
             week_tasks = [t for t in all_tasks if t.created_at >= week_start]
 
-            # Get recent notes
-            recent_notes = self.note_service.get_recent_notes(limit=20)
-            week_notes = [n for n in recent_notes if n.updated_at >= week_start]
+            # Get recent memories
+            recent_memories = self.memory_service.get_all_memories(limit=20)
+            week_memories = [m for m in recent_memories if m.updated_at >= week_start]
 
             # Build context
             context = {}
 
             if week_tasks:
-                completed = [t for t in week_tasks if t.status == TaskStatus.DONE]
+                completed = [t for t in week_tasks if t.status == TaskStatus.COMPLETED]
                 pending = [
-                    t for t in week_tasks if t.status in (TaskStatus.TODO, TaskStatus.DOING)
+                    t for t in week_tasks if t.status in (TaskStatus.PENDING, TaskStatus.ONGOING)
                 ]
 
                 context["This Week's Tasks"] = (
                     f"Completed ({len(completed)}):\n"
-                    + "\n".join([f"- {t.title}" for t in completed[:20]])
+                    + "\n".join([f"- {t.content[:100]}" for t in completed[:20]])
                     + f"\n\nStill Open ({len(pending)}):\n"
-                    + "\n".join([f"- {t.title}" for t in pending[:20]])
+                    + "\n".join([f"- {t.content[:100]}" for t in pending[:20]])
                 )
 
-            if week_notes:
-                context["This Week's Notes"] = "\n".join(
-                    [f"- {n.title} ({n.updated_at.date()})" for n in week_notes[:15]]
+            if week_memories:
+                context["This Week's Memories"] = "\n".join(
+                    [f"- {m.content[:100]} ({m.updated_at.date()})" for m in week_memories[:15]]
                 )
 
             # Agent task
-            agent_task = """Create a comprehensive weekly review note summarizing:
-1. Progress on major projects
-2. Tasks completed vs planned
-3. Key learnings and insights
+            agent_task = """Create a comprehensive weekly review summarizing:
+1. Tasks completed this week
+2. Tasks still in progress
+3. Key learnings and insights from memories
 4. Challenges encountered
 5. Focus areas for next week
 
-Title the note with the week date range and tag it with #weekly-review."""
+Store the review summary in the datavault with filetype 'md' and notes 'weekly-review'."""
 
             # Run orchestrator
             response = self.orchestrator.run_automation(
@@ -267,39 +267,47 @@ Title the note with the week date range and tag it with #weekly-review."""
             logger.error(f"Error in weekly review: {e}")
 
     def _run_note_resurfacing(self) -> None:
-        """Run note resurfacing automation."""
-        logger.info("Running note resurfacing")
+        """Run memory resurfacing automation."""
+        logger.info("Running memory resurfacing")
 
         try:
-            # Get old notes
-            old_notes = self.note_service.get_notes_for_resurfacing(
-                days=self.settings.automations.resurface_notes_age_days,
-                limit=self.settings.automations.resurface_notes_count,
+            # Get all memories
+            all_memories = self.memory_service.get_all_memories(
+                limit=self.settings.automations.resurface_notes_count
             )
 
-            if not old_notes:
-                logger.info("No notes to resurface")
+            if not all_memories:
+                logger.info("No memories to resurface")
+                return
+
+            # Filter old memories (older than specified days)
+            from ..utils.time import days_ago
+            cutoff_date = days_ago(self.settings.automations.resurface_notes_age_days)
+            old_memories = [m for m in all_memories if m.updated_at < cutoff_date]
+
+            if not old_memories:
+                logger.info("No old memories to resurface")
                 return
 
             # Build context
             context = {
-                "Old Notes to Resurface": "\n".join(
+                "Old Memories to Resurface": "\n".join(
                     [
-                        f"- [{n.id}] {n.title} (last updated: {n.updated_at.date()})\n  Preview: {n.content[:200]}..."
-                        for n in old_notes
+                        f"- [{m.id}] {m.content[:200]}... (last updated: {m.updated_at.date()})"
+                        for m in old_memories
                     ]
                 )
             }
 
             # Agent task
-            agent_task = f"""Review these old notes that haven't been updated in {self.settings.automations.resurface_notes_age_days} days.
+            agent_task = f"""Review these old memories that haven't been updated in {self.settings.automations.resurface_notes_age_days} days.
 
-For each note, decide:
+For each memory, decide:
 1. Should it be brought back to attention? Create a task if yes.
-2. Should it be archived? Archive if no longer relevant.
-3. Should it be updated or expanded? Suggest updates.
+2. Should it be updated with new information? Update the memory.
+3. Is it still relevant? Delete if no longer needed.
 
-Be thoughtful - only resurface truly valuable content."""
+Be thoughtful - only resurface truly valuable insights."""
 
             # Run orchestrator
             response = self.orchestrator.run_automation(
@@ -309,14 +317,14 @@ Be thoughtful - only resurface truly valuable content."""
             )
 
             if response.error:
-                logger.error(f"Note resurfacing failed: {response.error}")
+                logger.error(f"Memory resurfacing failed: {response.error}")
             else:
                 logger.info(
-                    f"Note resurfacing completed: {len(response.actions)} actions executed"
+                    f"Memory resurfacing completed: {len(response.actions)} actions executed"
                 )
 
         except Exception as e:
-            logger.error(f"Error in note resurfacing: {e}")
+            logger.error(f"Error in memory resurfacing: {e}")
 
     def _run_custom_rule(self, rule_id: int, agent_task: str) -> None:
         """Run a custom automation rule.
