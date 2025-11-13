@@ -149,6 +149,10 @@ class MainWindow(QMainWindow):
         backup_action.triggered.connect(self._backup_database)
         file_menu.addAction(backup_action)
 
+        migrate_action = QAction("&Migrate to New Schema", self)
+        migrate_action.triggered.connect(self._migrate_database)
+        file_menu.addAction(migrate_action)
+
         file_menu.addSeparator()
 
         exit_action = QAction("E&xit", self)
@@ -252,6 +256,75 @@ class MainWindow(QMainWindow):
                 self,
                 "Backup Failed",
                 f"Failed to backup database:\n{str(e)}",
+            )
+
+    def _migrate_database(self):
+        """Migrate database to new schema."""
+        # Show warning dialog
+        warning = QMessageBox(self)
+        warning.setIcon(QMessageBox.Icon.Warning)
+        warning.setWindowTitle("Migrate to New Schema")
+        warning.setText("⚠️ WARNING: This will DELETE ALL existing data!")
+        warning.setInformativeText(
+            "This migration will:\n\n"
+            "1. Create a backup of your current database\n"
+            "2. Drop all existing tables (Notes, Projects, old Tasks, etc.)\n"
+            "3. Create new tables (Tasks, Memory, Goals, Datavault)\n"
+            "4. Restart the application\n\n"
+            "ALL YOUR CURRENT DATA WILL BE LOST!\n\n"
+            "Do you want to proceed?"
+        )
+        warning.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        warning.setDefaultButton(QMessageBox.StandardButton.No)
+
+        if warning.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            # Step 1: Create backup first
+            from shutil import copy
+            from datetime import datetime
+            from pathlib import Path
+
+            backup_dir = Path(self.settings.storage.backup_dir)
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = backup_dir / f"gembrain_pre_migration_{timestamp}.db"
+
+            copy(self.settings.storage.db_path, backup_path)
+            logger.info(f"Created pre-migration backup at {backup_path}")
+
+            # Step 2: Close current database connection
+            if self.db_session:
+                self.db_session.close()
+
+            from ..core.db import close_db, recreate_db
+            close_db()
+
+            # Step 3: Recreate database with new schema
+            recreate_db(self.settings.storage.db_path)
+            logger.info("Database migrated to new schema")
+
+            # Step 4: Show success message
+            QMessageBox.information(
+                self,
+                "Migration Complete",
+                f"Database migrated successfully!\n\n"
+                f"Backup saved to:\n{backup_path}\n\n"
+                f"Please restart the application."
+            )
+
+            # Close the application so user can restart
+            self.close()
+
+        except Exception as e:
+            logger.error(f"Migration failed: {e}")
+            QMessageBox.critical(
+                self,
+                "Migration Failed",
+                f"Failed to migrate database:\n{str(e)}\n\n"
+                f"Your original database should still be intact."
             )
 
     def _run_automation(self, name: str):
