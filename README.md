@@ -2,32 +2,41 @@
 
 **A Gemini-powered agentic second brain desktop application**
 
+## ⚠️ IMPORTANT: Data Structure Refactor
+
+GemBrain has undergone a **major refactor** with new data structures optimized for iterative reasoning workflows. If you have an existing installation, you'll need to **migrate your database** (this will delete old data but create a backup).
+
+👉 **See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for migration instructions**
+
 ## Overview
 
-GemBrain is an intelligent personal knowledge management system that combines:
+GemBrain is an intelligent personal knowledge management system designed for iterative reasoning workflows:
 
-- **Notes**: Markdown-based note-taking with tags and projects
-- **Tasks**: Smart task management with due dates and project linking
-- **Projects**: Organize your work into cohesive projects
-- **Vault**: Store important files, URLs, and snippets
-- **Memory**: Long-term facts and preferences about you
+- **Tasks**: Decomposed work items with status tracking (pending/ongoing/paused/completed)
+- **Memory**: Small hints, clues, and insights accessible on demand
+- **Goals**: Expected outcomes for verification and quality checks
+- **Datavault**: Large data storage (code, text, outputs) to avoid token limits
 - **AI Agent**: Gemini orchestrates actions, creates structure, and provides insights
-- **Automations**: Daily/weekly reviews, note resurfacing, and custom workflows
+- **Automations**: Daily/weekly reviews, memory resurfacing, and custom workflows
+- **Goal-Based Verification**: Verification LLM checks if outputs meet defined goals
 
 ## Features
 
 ### Agentic Intelligence
-- Gemini doesn't just chat—it proposes and executes structured actions
-- Automatically creates notes from conversations
-- Extracts tasks from free-form text
-- Updates long-term memories
-- Runs scheduled automations (reviews, resurfacing)
+- **Iterative Reasoning**: Gemini breaks down complex queries into subtasks and executes them systematically
+- **Goal-Based Verification**: Set goals for output quality; verification LLM checks if they're met
+- **Smart Task Decomposition**: Automatically creates tasks from conversations with status tracking
+- **Memory Storage**: Stores insights and facts for future reference
+- **Code Execution**: Execute Python code with full GemBrain API access
+- **Datavault**: Store large data blobs to avoid token limits
+- **Automated Reviews**: Daily/weekly reviews and memory resurfacing
 
 ### Clean, Focused UI
 - Swiss minimalist design aesthetic
-- Multi-panel workspace (Chat, Notes, Tasks, Projects, Vault)
-- Context-aware side panel showing relevant information
+- Multi-panel workspace (Chat, Tasks)
+- Context-aware side panel showing recent tasks and memories
 - Comprehensive Settings panel for all configuration
+- Migration tool in File menu for database schema updates
 
 ### Data Ownership
 - Local SQLite database

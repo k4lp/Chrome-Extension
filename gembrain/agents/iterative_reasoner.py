@@ -654,6 +654,53 @@ class IterativeReasoner:
         if initial_context:
             context_blocks.extend(initial_context)
 
+        # CRITICAL: Fetch current state from database (Tasks, Memory, Goals)
+        # This ensures data created in iteration N is visible in iteration N+1
+        if self.action_handler:
+            try:
+                # Current Tasks - ALL statuses (pending, ongoing, paused, completed)
+                if hasattr(self.action_handler, 'task_service'):
+                    all_tasks = self.action_handler.task_service.get_all_tasks()
+                    if all_tasks:
+                        tasks_text = "=== CURRENT TASKS ===\n"
+                        for task in all_tasks:
+                            tasks_text += f"[{task.id}] ({task.status.value}) {task.content}\n"
+                            if task.notes:
+                                tasks_text += f"  Notes: {task.notes}\n"
+                        tasks_text += "\n"
+                        context_blocks.append(tasks_text)
+
+                # Current Memory - Recent memories (limit to avoid token bloat)
+                if hasattr(self.action_handler, 'memory_service'):
+                    recent_memories = self.action_handler.memory_service.get_all_memories(limit=20)
+                    if recent_memories:
+                        memory_text = "=== CURRENT MEMORIES ===\n"
+                        for memory in recent_memories:
+                            # Truncate content to 100 chars for context efficiency
+                            content_preview = memory.content[:100]
+                            if len(memory.content) > 100:
+                                content_preview += "..."
+                            memory_text += f"[{memory.id}] {content_preview}\n"
+                            if memory.notes:
+                                memory_text += f"  Notes: {memory.notes}\n"
+                        memory_text += "\n"
+                        context_blocks.append(memory_text)
+
+                # Current Goals - For verification tracking
+                if hasattr(self.action_handler, 'goal_service'):
+                    all_goals = self.action_handler.goal_service.get_all_goals()
+                    if all_goals:
+                        goals_text = "=== CURRENT GOALS ===\n"
+                        for goal in all_goals:
+                            goals_text += f"[{goal.id}] ({goal.status.value}) {goal.content}\n"
+                            if goal.notes:
+                                goals_text += f"  Notes: {goal.notes}\n"
+                        goals_text += "\n"
+                        context_blocks.append(goals_text)
+
+            except Exception as e:
+                logger.warning(f"Failed to fetch current state from database: {e}")
+
         # Add previous iterations
         if session.iterations:
             iterations_summary = "=== PREVIOUS ITERATIONS ===\n\n"
