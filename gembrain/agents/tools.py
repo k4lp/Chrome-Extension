@@ -287,6 +287,9 @@ class ActionExecutor:
             "vault_store": self._vault_store,
             "vault_get": self._vault_get,
             "vault_search": self._vault_search,
+            "vault_list": self._vault_list,
+            "vault_update": self._vault_update,
+            "vault_delete": self._vault_delete,
         }
 
         handler = handlers.get(action_type)
@@ -896,4 +899,134 @@ class ActionExecutor:
             "vault_search",
             f"Found {len(items_data)} vault items matching '{query}'",
             {"items": items_data, "count": len(items_data), "query": query},
+        )
+
+    def _vault_list(self, action: Dict[str, Any]) -> ActionResult:
+        """List all vault items.
+
+        Args:
+            action: Action with optional 'item_type' and 'limit' fields
+
+        Returns:
+            ActionResult with list of vault items
+        """
+        item_type = action.get("item_type")
+        limit = action.get("limit", 50)
+
+        # Convert string type to enum if provided
+        vault_type = None
+        if item_type:
+            try:
+                vault_type = VaultItemType(item_type)
+            except ValueError:
+                return ActionResult(
+                    False,
+                    "vault_list",
+                    f"Invalid vault item type: {item_type}",
+                )
+
+        items = self.vault_service.get_all_items(vault_type)[:limit]
+
+        items_data = [
+            {
+                "item_id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+                "path_or_url": item.path_or_url[:100] + "..." if len(item.path_or_url) > 100 else item.path_or_url,
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in items
+        ]
+
+        return ActionResult(
+            True,
+            "vault_list",
+            f"Listed {len(items_data)} vault items" + (f" of type {item_type}" if item_type else ""),
+            {"items": items_data, "count": len(items_data)},
+        )
+
+    def _vault_update(self, action: Dict[str, Any]) -> ActionResult:
+        """Update vault item.
+
+        Args:
+            action: Action with 'item_id' and update fields
+
+        Returns:
+            ActionResult with updated item info
+        """
+        item_id = action.get("item_id")
+        if not item_id:
+            return ActionResult(
+                False,
+                "vault_update",
+                "Missing required field: item_id",
+            )
+
+        # Extract update fields
+        update_fields = {}
+        if "title" in action:
+            update_fields["title"] = action["title"]
+        if "path_or_url" in action:
+            update_fields["path_or_url"] = action["path_or_url"]
+        if "item_metadata" in action:
+            update_fields["item_metadata"] = action["item_metadata"]
+
+        if not update_fields:
+            return ActionResult(
+                False,
+                "vault_update",
+                "No fields to update",
+            )
+
+        item = self.vault_service.update_item(item_id, **update_fields)
+
+        if not item:
+            return ActionResult(
+                False,
+                "vault_update",
+                f"Vault item {item_id} not found",
+            )
+
+        return ActionResult(
+            True,
+            "vault_update",
+            f"Updated vault item: {item.title}",
+            {
+                "item_id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+            },
+        )
+
+    def _vault_delete(self, action: Dict[str, Any]) -> ActionResult:
+        """Delete vault item.
+
+        Args:
+            action: Action with 'item_id' field
+
+        Returns:
+            ActionResult indicating success
+        """
+        item_id = action.get("item_id")
+        if not item_id:
+            return ActionResult(
+                False,
+                "vault_delete",
+                "Missing required field: item_id",
+            )
+
+        success = self.vault_service.delete_item(item_id)
+
+        if not success:
+            return ActionResult(
+                False,
+                "vault_delete",
+                f"Vault item {item_id} not found",
+            )
+
+        return ActionResult(
+            True,
+            "vault_delete",
+            f"Deleted vault item {item_id}",
+            {"item_id": item_id},
         )

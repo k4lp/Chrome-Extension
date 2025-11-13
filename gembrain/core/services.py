@@ -294,9 +294,27 @@ class VaultService:
         """Search vault items by title or path_or_url."""
         return VaultItemRepository.search(self.db, query)
 
+    def update_item(self, item_id: int, **kwargs) -> Optional[VaultItem]:
+        """Update vault item.
+
+        Args:
+            item_id: Vault item ID
+            **kwargs: Fields to update
+
+        Returns:
+            Updated vault item or None
+        """
+        item = VaultItemRepository.update(self.db, item_id, **kwargs)
+        if item:
+            logger.info(f"Updated vault item: {item.title} (id={item.id})")
+        return item
+
     def delete_item(self, item_id: int) -> bool:
         """Delete vault item."""
-        return VaultItemRepository.delete(self.db, item_id)
+        success = VaultItemRepository.delete(self.db, item_id)
+        if success:
+            logger.info(f"Deleted vault item (id={item_id})")
+        return success
 
 
 class AutomationService:

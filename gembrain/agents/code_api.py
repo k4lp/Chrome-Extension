@@ -349,6 +349,58 @@ class GemBrainAPI:
             for i in items
         ]
 
+    def vault_list(self, item_type: str = None, limit: int = 50):
+        """List all vault items.
+
+        Args:
+            item_type: Optional filter by type (snippet, file, url, other)
+            limit: Maximum results
+
+        Returns:
+            List of vault items
+        """
+        from ..core.models import VaultItemType
+
+        vault_type = None
+        if item_type:
+            try:
+                vault_type = VaultItemType(item_type)
+            except ValueError:
+                logger.warning(f"Invalid vault item type: {item_type}")
+
+        items = self.vault_service.get_all_items(vault_type)[:limit]
+        return [
+            {
+                "id": i.id,
+                "title": i.title,
+                "type": i.type.value,
+                "path_or_url": i.path_or_url,
+                "created_at": i.created_at.isoformat(),
+            }
+            for i in items
+        ]
+
+    def vault_update(self, item_id: int, **kwargs):
+        """Update a vault item.
+
+        Args:
+            item_id: Vault item ID
+            **kwargs: Fields to update (title, path_or_url, item_metadata)
+
+        Returns:
+            Updated vault item or None
+        """
+        item = self.vault_service.update_item(item_id, **kwargs)
+        if item:
+            logger.info(f"📝 Code updated vault item: {item.title} (id={item.id})")
+            return {
+                "id": item.id,
+                "title": item.title,
+                "type": item.type.value,
+                "path_or_url": item.path_or_url,
+            }
+        return None
+
     def vault_delete(self, item_id: int):
         """Delete a vault item.
 
