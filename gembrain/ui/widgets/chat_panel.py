@@ -446,7 +446,8 @@ class ChatPanel(QWidget):
         )
 
         # Show detailed results in technical view (Actions tab)
-        self.technical_view.append_actions_summary(len(results), success_count, fail_count)
+        # Note: Individual action cards are already shown via append_action_start/append_action_result
+        # No need for separate summary in technical view
 
         for result in results:
             # Add to technical view action history with full result data
