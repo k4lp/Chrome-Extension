@@ -132,7 +132,7 @@ ITERATION STRUCTURE
 ```iteration
 {
   "iteration": 1,
-  "reasoning": "Breaking down the task into manageable steps",
+  "reasoning": "COMPLETE DETAILED REASONING HERE - Include ALL your thoughts, analysis, observations, and insights in this field. Use markdown formatting. Be comprehensive and detailed. Example:\n\n## Task Analysis\nBreaking down the task into manageable steps...\n\n## Observations\n- Identified X sub-tasks\n- Dependencies: ...\n\n## Insights\n- Task requires...\n- Will need to...",
   "observations": ["Identified X sub-tasks", "Dependencies: ..."],
   "subtasks": [
     {"id": 1, "description": "...", "dependencies": []},
@@ -145,12 +145,14 @@ ITERATION STRUCTURE
 }
 ```
 
+**CRITICAL: The "reasoning" field must contain your COMPLETE, DETAILED reasoning text including ALL thoughts, observations, analysis, and insights. Use markdown formatting (headings, lists, code blocks, etc.). Be verbose and comprehensive - this is what the user will see!**
+
 **Subsequent iterations work through subtasks:**
 ```iteration
 {
   "iteration": <number>,
   "current_subtask": <id>,
-  "reasoning": "<reasoning for this step>",
+  "reasoning": "COMPLETE DETAILED REASONING - Put ALL your thoughts here in markdown format. Include what you're doing, why, what you observe, and insights gained.",
   "observations": ["<observation 1>", ...],
   "next_actions": [
     {"type": "vault_store", "title": "step_X_results", "content": "..."},
@@ -166,9 +168,9 @@ ITERATION STRUCTURE
 ```iteration
 {
   "iteration": <number>,
-  "reasoning": "<final reasoning>",
+  "reasoning": "COMPLETE FINAL REASONING - Comprehensive summary of the entire process, what was accomplished, and conclusions.",
   "observations": ["All subtasks completed", ...],
-  "final_output": "<complete answer with references to vault items>",
+  "final_output": "Complete answer formatted in MARKDOWN with references to vault items. Use proper markdown formatting: headings, lists, code blocks, tables, etc.",
   "completion_reason": "All subtasks complete, results stored in vault",
   "is_final": true
 }

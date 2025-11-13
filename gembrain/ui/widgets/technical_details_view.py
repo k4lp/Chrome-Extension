@@ -13,6 +13,13 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from loguru import logger
 
+try:
+    import markdown
+    MARKDOWN_AVAILABLE = True
+except ImportError:
+    MARKDOWN_AVAILABLE = False
+    logger.warning("markdown library not available - install with: pip install markdown")
+
 
 class TechnicalDetailsView(QWidget):
     """Widget for displaying technical details during agent execution.
@@ -88,6 +95,28 @@ class TechnicalDetailsView(QWidget):
         font.setPointSize(10)
         text_edit.setFont(font)
 
+    def _markdown_to_html(self, text: str) -> str:
+        """Convert markdown text to HTML.
+
+        Args:
+            text: Markdown text
+
+        Returns:
+            HTML string
+        """
+        if MARKDOWN_AVAILABLE:
+            try:
+                return markdown.markdown(
+                    text,
+                    extensions=['fenced_code', 'tables', 'nl2br', 'codehilite']
+                )
+            except Exception as e:
+                logger.warning(f"Markdown conversion failed: {e}")
+                return text.replace('\n', '<br>')
+        else:
+            # Fallback: simple newline to <br> conversion
+            return text.replace('\n', '<br>')
+
     # Reasoning Log Methods
     def append_reasoning_iteration(self, iteration: int, max_iterations: int):
         """Append reasoning iteration marker.
@@ -105,11 +134,13 @@ class TechnicalDetailsView(QWidget):
         """Append reasoning thought to log.
 
         Args:
-            thought: Thought/reasoning text (FULL, UNTRUNCATED)
+            thought: Thought/reasoning text (FULL, UNTRUNCATED, in MARKDOWN format)
         """
-        # Show EXACT reasoning - no truncation, no summarization
-        self.reasoning_log.append(f"<b style='color: #0066cc;'>💭 Reasoning:</b>")
-        self.reasoning_log.append(f"<div style='margin-left: 16px; white-space: pre-wrap;'>{thought}</div>")
+        # Convert markdown to HTML and show EXACT reasoning - no truncation, no summarization
+        html_content = self._markdown_to_html(thought)
+        self.reasoning_log.append(f"<b style='color: #0066cc;'>💭 Complete Reasoning:</b>")
+        self.reasoning_log.insertHtml(f"<div style='margin-left: 16px;'>{html_content}</div>")
+        self.reasoning_log.append("")
         self.reasoning_log.append("")
 
     def append_reasoning_observation(self, observation: str):
