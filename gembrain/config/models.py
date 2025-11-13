@@ -11,7 +11,7 @@ class APIConfig(BaseModel):
 
     gemini_api_key: str = Field(default="", description="Gemini API key")
     default_model: str = Field(default="gemini-1.5-pro", description="Default Gemini model")
-    max_output_tokens: int = Field(default=8192, ge=1, le=32768, description="Maximum output tokens")
+    max_output_tokens: int = Field(default=8192, ge=1, description="Maximum output tokens")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Temperature for generation")
     system_prompt_variant: str = Field(
         default="second_brain", description="System prompt variant to use"
