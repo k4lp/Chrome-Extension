@@ -19,6 +19,55 @@ from loguru import logger
 from ...agents.orchestrator import OrchestratorResponse, UIContext
 
 
+class OrchestratorWorker(QThread):
+    """Worker thread for running orchestrator in background."""
+
+    # Signals
+    finished = pyqtSignal(object)  # OrchestratorResponse
+    error = pyqtSignal(str)  # Error message
+    progress = pyqtSignal(str)  # Progress update (iteration info)
+
+    def __init__(self, orchestrator, user_message, ui_context, auto_apply):
+        """Initialize worker.
+
+        Args:
+            orchestrator: Orchestrator instance
+            user_message: User's message
+            ui_context: UI context
+            auto_apply: Whether to auto-apply actions
+        """
+        super().__init__()
+        self.orchestrator = orchestrator
+        self.user_message = user_message
+        self.ui_context = ui_context
+        self.auto_apply = auto_apply
+
+    def run(self):
+        """Run orchestrator in background thread."""
+        try:
+            logger.info("🧵 Worker thread started")
+
+            # Define progress callback that emits our signal
+            def on_progress(message: str):
+                """Progress callback that emits signal."""
+                self.progress.emit(message)
+
+            # Call orchestrator with progress callback
+            response = self.orchestrator.run_user_message(
+                user_message=self.user_message,
+                ui_context=self.ui_context,
+                auto_apply_actions=self.auto_apply,
+                progress_callback=on_progress,
+            )
+
+            logger.info("🧵 Worker thread completed successfully")
+            self.finished.emit(response)
+
+        except Exception as e:
+            logger.error(f"🧵 Worker thread error: {e}")
+            self.error.emit(str(e))
+
+
 class ChatPanel(QWidget):
     """Panel for chat interactions with the agent."""
 
@@ -35,6 +84,7 @@ class ChatPanel(QWidget):
         self.db_session = db_session
         self.orchestrator = orchestrator
         self.settings = settings
+        self.worker = None  # Background worker thread
 
         self._setup_ui()
 
@@ -116,7 +166,7 @@ class ChatPanel(QWidget):
         )
 
     def _send_message(self):
-        """Send user message to orchestrator."""
+        """Send user message to orchestrator (runs in background thread)."""
         user_text = self.input_box.toPlainText().strip()
         if not user_text:
             return
@@ -130,49 +180,98 @@ class ChatPanel(QWidget):
             )
             return
 
+        # Check if already processing
+        if self.worker and self.worker.isRunning():
+            logger.warning("Already processing a message")
+            return
+
         # Clear input
         self.input_box.clear()
 
         # Show user message
         self._append_user_message(user_text)
 
-        # FREEZE UI during processing
+        # Disable UI during processing (but keep it responsive)
         self._freeze_ui(True)
 
-        try:
-            # Get UI context
-            ui_context = UIContext(active_panel="chat")
+        # Get UI context
+        ui_context = UIContext(active_panel="chat")
 
-            # Call orchestrator
-            auto_apply = self.auto_apply_check.isChecked()
-            response = self.orchestrator.run_user_message(
-                user_message=user_text,
-                ui_context=ui_context,
-                auto_apply_actions=auto_apply,
-            )
+        # Create and start worker thread
+        auto_apply = self.auto_apply_check.isChecked()
+        self.worker = OrchestratorWorker(
+            orchestrator=self.orchestrator,
+            user_message=user_text,
+            ui_context=ui_context,
+            auto_apply=auto_apply,
+        )
 
-            if response.error:
-                self._append_error_message(f"Error: {response.error}")
-            else:
-                # Show agent reply
-                self._append_agent_message(response.reply_text)
+        # Connect signals
+        self.worker.finished.connect(self._on_response_ready)
+        self.worker.error.connect(self._on_worker_error)
+        self.worker.progress.connect(self._on_progress_update)
 
-                # Handle actions
-                if response.actions:
-                    if auto_apply and response.action_results:
-                        # Show results with details
-                        self._show_action_results(response.action_results)
-                    else:
-                        # Show actions for review
-                        self._show_actions(response.actions)
+        # Start worker
+        logger.info("🚀 Starting background worker thread")
+        self.worker.start()
 
-        except Exception as e:
-            logger.error(f"Error in chat: {e}")
-            self._append_error_message(f"Error: {str(e)}")
+    def _on_response_ready(self, response: OrchestratorResponse):
+        """Handle response from worker thread.
 
-        finally:
-            # UNFREEZE UI
-            self._freeze_ui(False)
+        Args:
+            response: OrchestratorResponse from orchestrator
+        """
+        logger.info("✅ Response ready from worker thread")
+
+        if response.error:
+            self._append_error_message(f"Error: {response.error}")
+        else:
+            # Show agent reply
+            self._append_agent_message(response.reply_text)
+
+            # Handle actions
+            if response.actions:
+                if self.auto_apply_check.isChecked() and response.action_results:
+                    # Show results with details
+                    self._show_action_results(response.action_results)
+                else:
+                    # Show actions for review
+                    self._show_actions(response.actions)
+
+        # Re-enable UI
+        self._freeze_ui(False)
+
+    def _on_worker_error(self, error_message: str):
+        """Handle error from worker thread.
+
+        Args:
+            error_message: Error message
+        """
+        logger.error(f"❌ Worker error: {error_message}")
+        self._append_error_message(f"Error: {error_message}")
+
+        # Re-enable UI
+        self._freeze_ui(False)
+
+    def _on_progress_update(self, progress_message: str):
+        """Handle progress update from worker thread.
+
+        Args:
+            progress_message: Progress message (e.g., "Iteration 3/50")
+        """
+        # Update the processing message with iteration progress
+        cursor = self.chat_history.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        current_line = cursor.selectedText()
+
+        # If last line is a processing message, update it
+        if "Processing" in current_line or "Iteration" in current_line:
+            cursor.removeSelectedText()
+            cursor.deletePreviousChar()  # Remove newline
+
+        # Append new progress
+        self.chat_history.append(f"<i style='color: #999;'>{progress_message}</i>")
 
     def _show_actions(self, actions):
         """Show actions for user review.

@@ -74,6 +74,7 @@ class Orchestrator:
         user_message: str,
         ui_context: Optional[UIContext] = None,
         auto_apply_actions: bool = False,
+        progress_callback: Optional[callable] = None,
     ) -> OrchestratorResponse:
         """Process user message and return response with actions.
 
@@ -81,6 +82,7 @@ class Orchestrator:
             user_message: User's message
             ui_context: Optional UI context
             auto_apply_actions: Whether to automatically apply actions
+            progress_callback: Optional callback for progress updates (used in iterative mode)
 
         Returns:
             OrchestratorResponse
@@ -96,6 +98,7 @@ class Orchestrator:
                     max_iterations=self.settings.agent_behavior.max_reasoning_iterations,
                     verification_model=self.settings.agent_behavior.verification_model,
                     ui_context=ui_context,
+                    progress_callback=progress_callback,
                 )
 
                 # Use final output as reply
@@ -181,6 +184,7 @@ class Orchestrator:
         max_iterations: int = 50,
         verification_model: Optional[str] = None,
         ui_context: Optional[UIContext] = None,
+        progress_callback: Optional[callable] = None,
     ) -> Tuple[ReasoningSession, bool]:
         """Run iterative reasoning with verification.
 
@@ -189,6 +193,7 @@ class Orchestrator:
             max_iterations: Maximum iterations to run
             verification_model: Optional separate model for verification
             ui_context: Optional UI context
+            progress_callback: Optional callback for progress updates
 
         Returns:
             Tuple of (ReasoningSession, verification_approved)
@@ -206,7 +211,7 @@ class Orchestrator:
         )
 
         # Run reasoning iterations
-        session = reasoner.reason(user_query, initial_context)
+        session = reasoner.reason(user_query, initial_context, progress_callback)
 
         logger.info(
             f"✅ Reasoning completed: {len(session.iterations)} iterations, "
