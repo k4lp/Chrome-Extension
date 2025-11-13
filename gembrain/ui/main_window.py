@@ -23,6 +23,7 @@ from .widgets.vault_panel import VaultPanel
 from .widgets.context_panel import ContextPanel
 from .widgets.status_bar import CustomStatusBar
 from .widgets.settings_dialog import SettingsDialog
+from ..automation.engine import AutomationEngine
 
 
 class MainWindow(QMainWindow):

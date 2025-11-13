@@ -131,10 +131,20 @@ class SettingsDialog(QDialog):
         help_label.setOpenExternalLinks(True)
         layout.addRow("", help_label)
 
-        # Model
+        # Model selection with refresh button
+        model_layout = QHBoxLayout()
         self.model_combo = QComboBox()
         self.model_combo.addItems(AVAILABLE_MODELS)
-        layout.addRow("Model:", self.model_combo)
+        self.model_combo.setEditable(True)  # Allow custom model names
+        model_layout.addWidget(self.model_combo, stretch=1)
+
+        self.refresh_models_btn = QPushButton("🔄 Refresh")
+        self.refresh_models_btn.setMaximumWidth(100)
+        self.refresh_models_btn.clicked.connect(self._refresh_models)
+        self.refresh_models_btn.setToolTip("Fetch available models from Gemini API")
+        model_layout.addWidget(self.refresh_models_btn)
+
+        layout.addRow("Model:", model_layout)
 
         # Temperature
         self.temperature_spin = QDoubleSpinBox()
@@ -144,7 +154,7 @@ class SettingsDialog(QDialog):
 
         # Max tokens
         self.max_tokens_spin = QSpinBox()
-        self.max_tokens_spin.setRange(1, 32768)
+        self.max_tokens_spin.setRange(1, 65536)
         self.max_tokens_spin.setSingleStep(256)
         layout.addRow("Max Output Tokens:", self.max_tokens_spin)
 
@@ -419,3 +429,88 @@ class SettingsDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, "Select Backup Directory")
         if path:
             self.backup_dir_edit.setText(path)
+
+    def _refresh_models(self):
+        """Refresh available models from Gemini API."""
+        try:
+            # Get API keys from the text box
+            api_keys_text = self.api_keys_edit.toPlainText().strip()
+
+            if not api_keys_text:
+                QMessageBox.warning(
+                    self,
+                    "No API Key",
+                    "Please enter at least one Gemini API key before refreshing models."
+                )
+                return
+
+            # Parse first API key
+            api_keys = [k.strip() for k in api_keys_text.split('\n') if k.strip()]
+            first_key = api_keys[0]
+
+            # Disable button and show loading
+            self.refresh_models_btn.setEnabled(False)
+            self.refresh_models_btn.setText("Loading...")
+
+            # Import here to avoid circular imports
+            import google.generativeai as genai
+
+            # Configure with first API key
+            genai.configure(api_key=first_key)
+
+            # Fetch available models
+            models = []
+            for model in genai.list_models():
+                # Only include generative models
+                if 'generateContent' in model.supported_generation_methods:
+                    model_name = model.name.replace('models/', '')
+                    models.append(model_name)
+
+            if models:
+                # Remember current selection
+                current_model = self.model_combo.currentText()
+
+                # Update combo box
+                self.model_combo.clear()
+                self.model_combo.addItems(sorted(models))
+
+                # Restore selection if it exists
+                index = self.model_combo.findText(current_model)
+                if index >= 0:
+                    self.model_combo.setCurrentIndex(index)
+
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Successfully fetched {len(models)} available models from Gemini API."
+                )
+                logger.info(f"Refreshed model list: {len(models)} models found")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "No Models Found",
+                    "No generative models were found. Using default model list."
+                )
+
+        except ImportError:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "google-generativeai package not installed. Please install it first:\n"
+                "pip install google-generativeai"
+            )
+            logger.error("google-generativeai package not installed")
+
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to fetch models from Gemini API:\n{str(e)}\n\n"
+                "Please check your API key and internet connection."
+            )
+            logger.error(f"Failed to refresh models: {e}")
+
+        finally:
+            # Re-enable button
+            self.refresh_models_btn.setEnabled(True)
+            self.refresh_models_btn.setText("🔄 Refresh")
