@@ -297,6 +297,11 @@ class ChatPanel(QWidget):
                 observation = progress_data.get("content", "")
                 self.technical_view.append_reasoning_observation(observation)
 
+            elif event_type == "insights":
+                # Show insights in technical view
+                insights = progress_data.get("content", "")
+                self.technical_view.append_reasoning_insights(insights)
+
             elif event_type == "actions_planned":
                 # Show actions in technical view
                 actions = progress_data.get("actions", [])
@@ -430,9 +435,9 @@ class ChatPanel(QWidget):
         self.technical_view.append_actions_summary(len(results), success_count, fail_count)
 
         for result in results:
-            # Add to technical view action history
+            # Add to technical view action history with full result data
             self.technical_view.append_action_result(
-                result.action_type, result.success, result.message
+                result.action_type, result.success, result.message, result_data=result.data
             )
 
             # Special handling for code execution - show in Code Execution tab

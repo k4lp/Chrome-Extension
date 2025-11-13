@@ -414,6 +414,14 @@ class IterativeReasoner:
                         "content": observations_text,
                     })
 
+                # Emit insights gained progress
+                if progress_callback and iteration.insights_gained:
+                    insights_text = "\n".join(f"• {insight}" for insight in iteration.insights_gained)
+                    progress_callback({
+                        "type": "insights",
+                        "content": insights_text,
+                    })
+
                 # Execute actions if any
                 if "next_actions" in iteration_data:
                     iteration.actions_taken = iteration_data["next_actions"]
