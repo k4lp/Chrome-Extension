@@ -1,10 +1,13 @@
 """Action tools for executing agent decisions."""
 
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, List, Optional, Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from loguru import logger
+import time
+import traceback
 
 from ..core.services import (
     NoteService,
@@ -25,17 +28,49 @@ class ActionResult:
     action_type: str
     message: str
     data: Optional[Dict[str, Any]] = None
+    retry_count: int = 0
+    execution_time: float = 0.0
+    error_details: Optional[str] = None
 
 
 class ActionExecutor:
-    """Executes actions from agent responses."""
+    """Executes actions from agent responses with robust error handling."""
 
-    def __init__(self, db: Session, enable_code_execution: bool = True):
+    # Actions that support retry on failure
+    RETRYABLE_ACTIONS = {
+        "create_note",
+        "update_note",
+        "create_project",
+        "update_memory",
+        "add_vault_item",
+        "add_task",
+        "update_task",
+    }
+
+    # Actions that should not be retried (destructive or query actions)
+    NON_RETRYABLE_ACTIONS = {
+        "delete_note",
+        "delete_task",
+        "archive_note",
+        "execute_code",
+        "list_notes",
+        "search_notes",
+    }
+
+    def __init__(
+        self,
+        db: Session,
+        enable_code_execution: bool = True,
+        max_retries: int = 3,
+        retry_delay: float = 0.5,
+    ):
         """Initialize action executor.
 
         Args:
             db: Database session
             enable_code_execution: Whether to allow code execution
+            max_retries: Maximum number of retries for failed actions
+            retry_delay: Delay between retries in seconds
         """
         self.db = db
         self.note_service = NoteService(db)
@@ -45,9 +80,152 @@ class ActionExecutor:
         self.vault_service = VaultService(db)
         self.enable_code_execution = enable_code_execution
         self.code_executor = CodeExecutor() if enable_code_execution else None
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+    def _validate_action(self, action: Dict[str, Any]) -> Optional[str]:
+        """Validate action parameters.
+
+        Args:
+            action: Action dictionary
+
+        Returns:
+            Error message if invalid, None if valid
+        """
+        action_type = action.get("type")
+        if not action_type:
+            return "Missing action type"
+
+        # Type-specific validation
+        required_fields = {
+            "create_note": ["title"],
+            "update_note": ["note_id"],
+            "archive_note": ["note_id"],
+            "delete_note": ["note_id"],
+            "add_task": ["title"],
+            "update_task": ["task_id"],
+            "complete_task": ["task_id"],
+            "delete_task": ["task_id"],
+            "create_project": ["name"],
+            "update_memory": ["key", "content"],
+            "add_vault_item": ["title", "path_or_url"],
+            "execute_code": ["code"],
+            "list_notes": [],
+            "search_notes": ["query"],
+            "list_tasks": [],
+            "search_tasks": ["query"],
+            "list_projects": [],
+        }
+
+        if action_type in required_fields:
+            for field in required_fields[action_type]:
+                if not action.get(field):
+                    return f"Missing required field: {field}"
+
+        return None
+
+    def _execute_with_retry(
+        self, action_type: str, handler: Callable, action: Dict[str, Any]
+    ) -> ActionResult:
+        """Execute action with retry logic.
+
+        Args:
+            action_type: Type of action
+            handler: Handler function
+            action: Action parameters
+
+        Returns:
+            ActionResult
+        """
+        # Determine if action is retryable
+        is_retryable = action_type in self.RETRYABLE_ACTIONS
+        max_attempts = self.max_retries + 1 if is_retryable else 1
+
+        last_error = None
+        start_time = time.time()
+
+        for attempt in range(max_attempts):
+            try:
+                # Execute the handler
+                result = handler(action)
+
+                # If successful, add timing and return
+                if result.success:
+                    result.execution_time = time.time() - start_time
+                    result.retry_count = attempt
+                    return result
+
+                # If failed but not retryable, return immediately
+                if not is_retryable:
+                    result.execution_time = time.time() - start_time
+                    return result
+
+                # Failed but retryable - store error and retry
+                last_error = result.message
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        f"⚠️ Action failed (attempt {attempt + 1}/{max_attempts}): {result.message}"
+                    )
+                    logger.warning(f"Retrying in {self.retry_delay}s...")
+                    time.sleep(self.retry_delay)
+                    continue
+
+                # All retries exhausted
+                result.execution_time = time.time() - start_time
+                result.retry_count = attempt
+                return result
+
+            except SQLAlchemyError as e:
+                # Database error - rollback and retry if applicable
+                self.db.rollback()
+                last_error = f"Database error: {str(e)}"
+                logger.error(f"❌ Database error in action {action_type}: {e}")
+
+                if is_retryable and attempt < max_attempts - 1:
+                    logger.warning(f"Retrying after database error (attempt {attempt + 1}/{max_attempts})...")
+                    time.sleep(self.retry_delay)
+                    continue
+
+                return ActionResult(
+                    False,
+                    action_type,
+                    f"Database error after {attempt + 1} attempts: {str(e)}",
+                    error_details=traceback.format_exc(),
+                    retry_count=attempt,
+                    execution_time=time.time() - start_time,
+                )
+
+            except Exception as e:
+                # General error
+                last_error = str(e)
+                logger.error(f"❌ Error in action {action_type}: {e}")
+                logger.error(traceback.format_exc())
+
+                if is_retryable and attempt < max_attempts - 1:
+                    logger.warning(f"Retrying after error (attempt {attempt + 1}/{max_attempts})...")
+                    time.sleep(self.retry_delay)
+                    continue
+
+                return ActionResult(
+                    False,
+                    action_type,
+                    f"Error after {attempt + 1} attempts: {str(e)}",
+                    error_details=traceback.format_exc(),
+                    retry_count=attempt,
+                    execution_time=time.time() - start_time,
+                )
+
+        # Should never reach here, but just in case
+        return ActionResult(
+            False,
+            action_type,
+            f"Failed after {max_attempts} attempts: {last_error}",
+            retry_count=max_attempts - 1,
+            execution_time=time.time() - start_time,
+        )
 
     def execute_action(self, action: Dict[str, Any]) -> ActionResult:
-        """Execute a single action.
+        """Execute a single action with validation and retry logic.
 
         Args:
             action: Action dictionary with type and parameters
@@ -55,14 +233,18 @@ class ActionExecutor:
         Returns:
             ActionResult
         """
-        action_type = action.get("type")
-        if not action_type:
-            return ActionResult(False, "unknown", "Missing action type")
+        action_type = action.get("type", "unknown")
 
         # Log action start
         logger.info("─" * 60)
         logger.info(f"EXECUTING ACTION: {action_type}")
         logger.info(f"Parameters: {action}")
+
+        # Validate action
+        validation_error = self._validate_action(action)
+        if validation_error:
+            logger.error(f"✗ VALIDATION ERROR: {validation_error}")
+            return ActionResult(False, action_type, validation_error)
 
         # Route to appropriate handler
         handlers = {
@@ -78,6 +260,11 @@ class ActionExecutor:
             "update_memory": self._update_memory,
             "add_vault_item": self._add_vault_item,
             "execute_code": self._execute_code,
+            "list_notes": self._list_notes,
+            "search_notes": self._search_notes,
+            "list_tasks": self._list_tasks,
+            "search_tasks": self._search_tasks,
+            "list_projects": self._list_projects,
         }
 
         handler = handlers.get(action_type)
@@ -85,21 +272,22 @@ class ActionExecutor:
             logger.error(f"Unknown action type: {action_type}")
             return ActionResult(False, action_type, f"Unknown action type: {action_type}")
 
-        try:
-            result = handler(action)
+        # Execute with retry logic
+        result = self._execute_with_retry(action_type, handler, action)
 
-            # Log result
-            if result.success:
-                logger.info(f"✓ ACTION SUCCESS: {result.message}")
-            else:
-                logger.error(f"✗ ACTION FAILED: {result.message}")
+        # Log final result
+        if result.success:
+            logger.info(
+                f"✓ ACTION SUCCESS ({result.execution_time:.3f}s, "
+                f"{result.retry_count} retries): {result.message}"
+            )
+        else:
+            logger.error(
+                f"✗ ACTION FAILED ({result.execution_time:.3f}s, "
+                f"{result.retry_count} retries): {result.message}"
+            )
 
-            return result
-        except Exception as e:
-            logger.error(f"✗ ERROR executing action {action_type}: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return ActionResult(False, action_type, f"Error: {str(e)}")
+        return result
 
     def execute_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
         """Execute multiple actions.
@@ -412,3 +600,181 @@ class ActionExecutor:
                     "execution_time": result.get("execution_time", 0),
                 },
             )
+
+    # Query/List actions for retrieving IDs and data
+    def _list_notes(self, action: Dict[str, Any]) -> ActionResult:
+        """List all notes with their IDs.
+
+        Returns:
+            ActionResult with list of notes
+        """
+        limit = action.get("limit", 50)
+        include_archived = action.get("include_archived", False)
+
+        notes = self.note_service.get_all_notes()
+
+        if not include_archived:
+            notes = [n for n in notes if not n.archived]
+
+        notes = notes[:limit]
+
+        notes_data = [
+            {
+                "id": note.id,
+                "title": note.title,
+                "tags": note.tags,
+                "pinned": note.pinned,
+                "archived": note.archived,
+                "created_at": note.created_at.isoformat(),
+                "updated_at": note.updated_at.isoformat(),
+            }
+            for note in notes
+        ]
+
+        return ActionResult(
+            True,
+            "list_notes",
+            f"Retrieved {len(notes_data)} notes",
+            {"notes": notes_data, "count": len(notes_data)},
+        )
+
+    def _search_notes(self, action: Dict[str, Any]) -> ActionResult:
+        """Search notes by query.
+
+        Args:
+            action: Action with 'query' field
+
+        Returns:
+            ActionResult with matching notes
+        """
+        query = action.get("query", "")
+        limit = action.get("limit", 20)
+
+        notes = self.note_service.search_notes(query)[:limit]
+
+        notes_data = [
+            {
+                "id": note.id,
+                "title": note.title,
+                "content": note.content[:200] + "..." if len(note.content) > 200 else note.content,
+                "tags": note.tags,
+                "pinned": note.pinned,
+                "archived": note.archived,
+                "created_at": note.created_at.isoformat(),
+                "updated_at": note.updated_at.isoformat(),
+            }
+            for note in notes
+        ]
+
+        return ActionResult(
+            True,
+            "search_notes",
+            f"Found {len(notes_data)} notes matching '{query}'",
+            {"notes": notes_data, "count": len(notes_data), "query": query},
+        )
+
+    def _list_tasks(self, action: Dict[str, Any]) -> ActionResult:
+        """List all tasks with their IDs.
+
+        Returns:
+            ActionResult with list of tasks
+        """
+        limit = action.get("limit", 50)
+        status_filter = action.get("status")  # Optional: todo, doing, done, stale
+
+        tasks = self.task_service.get_all_tasks()
+
+        if status_filter:
+            try:
+                status_enum = TaskStatus(status_filter)
+                tasks = [t for t in tasks if t.status == status_enum]
+            except ValueError:
+                pass
+
+        tasks = tasks[:limit]
+
+        tasks_data = [
+            {
+                "id": task.id,
+                "title": task.title,
+                "status": task.status.value,
+                "due_date": task.due_date.isoformat() if task.due_date else None,
+                "project_name": task.project_name,
+                "note_id": task.note_id,
+                "created_at": task.created_at.isoformat(),
+                "updated_at": task.updated_at.isoformat(),
+            }
+            for task in tasks
+        ]
+
+        return ActionResult(
+            True,
+            "list_tasks",
+            f"Retrieved {len(tasks_data)} tasks",
+            {"tasks": tasks_data, "count": len(tasks_data)},
+        )
+
+    def _search_tasks(self, action: Dict[str, Any]) -> ActionResult:
+        """Search tasks by query.
+
+        Args:
+            action: Action with 'query' field
+
+        Returns:
+            ActionResult with matching tasks
+        """
+        query = action.get("query", "")
+        limit = action.get("limit", 20)
+
+        tasks = self.task_service.search_tasks(query)[:limit]
+
+        tasks_data = [
+            {
+                "id": task.id,
+                "title": task.title,
+                "status": task.status.value,
+                "due_date": task.due_date.isoformat() if task.due_date else None,
+                "project_name": task.project_name,
+                "note_id": task.note_id,
+                "created_at": task.created_at.isoformat(),
+                "updated_at": task.updated_at.isoformat(),
+            }
+            for task in tasks
+        ]
+
+        return ActionResult(
+            True,
+            "search_tasks",
+            f"Found {len(tasks_data)} tasks matching '{query}'",
+            {"tasks": tasks_data, "count": len(tasks_data), "query": query},
+        )
+
+    def _list_projects(self, action: Dict[str, Any]) -> ActionResult:
+        """List all projects with their IDs.
+
+        Returns:
+            ActionResult with list of projects
+        """
+        limit = action.get("limit", 50)
+
+        projects = self.project_service.get_all_projects()[:limit]
+
+        projects_data = [
+            {
+                "id": project.id,
+                "name": project.name,
+                "description": project.description,
+                "tags": project.tags,
+                "task_count": len(project.tasks) if hasattr(project, "tasks") else 0,
+                "created_at": project.created_at.isoformat(),
+                "updated_at": project.updated_at.isoformat(),
+            }
+            for project in projects
+        ]
+
+        return ActionResult(
+            True,
+            "list_projects",
+            f"Retrieved {len(projects_data)} projects",
+            {"projects": projects_data, "count": len(projects_data)},
+        )

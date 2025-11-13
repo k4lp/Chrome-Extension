@@ -103,7 +103,6 @@ class SettingsDialog(QDialog):
         self.show_context_check = QCheckBox()
         layout.addRow("Show Context Panel:", self.show_context_check)
 
-        layout.addStretch()
         return widget
 
     def _create_gemini_tab(self) -> QWidget:
@@ -111,14 +110,23 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QFormLayout(widget)
 
-        # API Key
-        self.api_key_edit = QLineEdit()
-        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_edit.setPlaceholderText("Enter your Gemini API key...")
-        layout.addRow("API Key:", self.api_key_edit)
+        # API Keys (multiple, newline-delimited)
+        from PyQt6.QtWidgets import QPlainTextEdit
+
+        self.api_keys_edit = QPlainTextEdit()
+        self.api_keys_edit.setPlaceholderText(
+            "Enter your Gemini API key(s)...\n"
+            "One per line for automatic rotation on rate limits.\n"
+            "Example:\n"
+            "AIzaSyAbc123...\n"
+            "AIzaSyDef456..."
+        )
+        self.api_keys_edit.setMaximumHeight(120)
+        layout.addRow("API Keys:", self.api_keys_edit)
 
         help_label = QLabel(
-            '<a href="https://makersuite.google.com/app/apikey">Get API Key</a>'
+            '<a href="https://makersuite.google.com/app/apikey">Get API Key</a> | '
+            'Multiple keys enable automatic rotation on rate limits'
         )
         help_label.setOpenExternalLinks(True)
         layout.addRow("", help_label)
@@ -145,7 +153,6 @@ class SettingsDialog(QDialog):
         self.prompt_variant_combo.addItems(PROMPT_VARIANTS)
         layout.addRow("Prompt Variant:", self.prompt_variant_combo)
 
-        layout.addStretch()
         return widget
 
     def _create_agent_tab(self) -> QWidget:
@@ -194,7 +201,6 @@ class SettingsDialog(QDialog):
         warning_label.setWordWrap(True)
         layout.addRow("", warning_label)
 
-        layout.addStretch()
         return widget
 
     def _create_storage_tab(self) -> QWidget:
@@ -233,7 +239,6 @@ class SettingsDialog(QDialog):
         self.backup_interval_spin.setSuffix(" hours")
         layout.addRow("Backup Interval:", self.backup_interval_spin)
 
-        layout.addStretch()
         return widget
 
     def _create_automation_tab(self) -> QWidget:
@@ -291,7 +296,6 @@ class SettingsDialog(QDialog):
         resurface_layout.addRow("Notes to Resurface:", self.resurface_count_spin)
 
         layout.addWidget(resurface_group)
-        layout.addStretch()
         return widget
 
     def _load_settings(self):
@@ -304,7 +308,7 @@ class SettingsDialog(QDialog):
         self.show_context_check.setChecked(self.settings.ui.show_context_panel)
 
         # Gemini
-        self.api_key_edit.setText(self.settings.api.gemini_api_key)
+        self.api_keys_edit.setPlainText(self.settings.api.gemini_api_key)
         self.model_combo.setCurrentText(self.settings.api.default_model)
         self.temperature_spin.setValue(self.settings.api.temperature)
         self.max_tokens_spin.setValue(self.settings.api.max_output_tokens)
@@ -351,8 +355,8 @@ class SettingsDialog(QDialog):
         self.settings.ui.compact_mode = self.compact_mode_check.isChecked()
         self.settings.ui.show_context_panel = self.show_context_check.isChecked()
 
-        # Gemini
-        self.settings.api.gemini_api_key = self.api_key_edit.text()
+        # Gemini - save all API keys
+        self.settings.api.gemini_api_key = self.api_keys_edit.toPlainText()
         self.settings.api.default_model = self.model_combo.currentText()
         self.settings.api.temperature = self.temperature_spin.value()
         self.settings.api.max_output_tokens = self.max_tokens_spin.value()
