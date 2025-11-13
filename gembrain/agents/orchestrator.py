@@ -45,7 +45,9 @@ class Orchestrator:
         self.db = db
         self.settings = settings
         self.gemini_client = GeminiClient(settings)
-        self.action_executor = ActionExecutor(db)
+        self.action_executor = ActionExecutor(
+            db, enable_code_execution=settings.agent_behavior.enable_code_execution
+        )
 
         # Services for building context
         self.note_service = NoteService(db)
@@ -61,6 +63,10 @@ class Orchestrator:
         """
         self.settings = settings
         self.gemini_client.reconfigure(settings)
+        # Recreate action executor with new settings
+        self.action_executor = ActionExecutor(
+            self.db, enable_code_execution=settings.agent_behavior.enable_code_execution
+        )
 
     def run_user_message(
         self,

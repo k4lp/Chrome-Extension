@@ -182,6 +182,18 @@ class SettingsDialog(QDialog):
         self.max_context_spin.setRange(1, 50)
         layout.addRow("Max Context Items:", self.max_context_spin)
 
+        # Code execution
+        layout.addRow("", QLabel(""))  # Spacer
+        self.enable_code_exec_check = QCheckBox()
+        layout.addRow("⚠️ Enable Code Execution:", self.enable_code_exec_check)
+
+        warning_label = QLabel(
+            "<small style='color: #cc0000;'><b>WARNING:</b> This allows the agent to execute "
+            "Python code with full system access. Only enable if you trust the AI.</small>"
+        )
+        warning_label.setWordWrap(True)
+        layout.addRow("", warning_label)
+
         layout.addStretch()
         return widget
 
@@ -308,6 +320,7 @@ class SettingsDialog(QDialog):
         self.include_notes_check.setChecked(self.settings.agent_behavior.include_context_notes)
         self.include_tasks_check.setChecked(self.settings.agent_behavior.include_context_tasks)
         self.max_context_spin.setValue(self.settings.agent_behavior.max_context_items)
+        self.enable_code_exec_check.setChecked(self.settings.agent_behavior.enable_code_execution)
 
         # Storage
         self.db_path_edit.setText(self.settings.storage.db_path)
@@ -357,6 +370,9 @@ class SettingsDialog(QDialog):
         self.settings.agent_behavior.include_context_notes = self.include_notes_check.isChecked()
         self.settings.agent_behavior.include_context_tasks = self.include_tasks_check.isChecked()
         self.settings.agent_behavior.max_context_items = self.max_context_spin.value()
+        self.settings.agent_behavior.enable_code_execution = (
+            self.enable_code_exec_check.isChecked()
+        )
 
         # Storage
         self.settings.storage.db_path = self.db_path_edit.text()

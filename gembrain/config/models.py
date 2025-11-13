@@ -65,6 +65,9 @@ class AgentBehaviorConfig(BaseModel):
     max_context_items: int = Field(
         default=10, ge=1, le=50, description="Maximum context items to include"
     )
+    enable_code_execution: bool = Field(
+        default=True, description="Allow agent to execute Python code with full system access"
+    )
 
 
 class AutomationConfig(BaseModel):

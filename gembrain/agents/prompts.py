@@ -56,6 +56,16 @@ AVAILABLE ACTIONS:
 - create_project: {name, description (optional), tags (optional)}
 - update_memory: {key, content, importance (1-5)}
 - add_vault_item: {title, type (file/url/snippet/other), path_or_url}
+- execute_code: {code} - Execute Python code with FULL SYSTEM ACCESS. You can:
+  * Import any library (requests, pandas, numpy, etc.)
+  * Read/write files anywhere on the system
+  * Run shell commands via subprocess
+  * Install packages with pip
+  * Access the network
+  * Analyze data, create visualizations
+  * Automate tasks
+  * Do ANYTHING Python can do
+  Use this for data analysis, automation, web scraping, file operations, etc.
 
 If no actions are needed, return:
 ```actions
