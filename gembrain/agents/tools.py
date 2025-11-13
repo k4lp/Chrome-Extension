@@ -276,7 +276,13 @@ class ActionExecutor:
             "complete_task": self._complete_task,
             "delete_task": self._delete_task,
             "create_project": self._create_project,
+            "update_project": self._update_project,
+            "delete_project": self._delete_project,
+            "search_projects": self._search_projects,
             "update_memory": self._update_memory,
+            "list_memories": self._list_memories,
+            "get_memory": self._get_memory,
+            "delete_memory": self._delete_memory,
             "add_vault_item": self._add_vault_item,
             "execute_code": self._execute_code,
             "list_notes": self._list_notes,
@@ -522,6 +528,158 @@ class ActionExecutor:
             {"project_id": project.id, "name": project.name},
         )
 
+    def _update_project(self, action: Dict[str, Any]) -> ActionResult:
+        """Update a project.
+
+        Args:
+            action: Action with 'project_id' or 'name', and update fields
+
+        Returns:
+            ActionResult with updated project info
+        """
+        project_id = action.get("project_id")
+        project_name = action.get("name")
+
+        # Find project by ID or name
+        if project_id:
+            project = self.project_service.get_project(project_id)
+        elif project_name:
+            project = self.project_service.get_project_by_name(project_name)
+        else:
+            return ActionResult(
+                False,
+                "update_project",
+                "Missing required field: project_id or name",
+            )
+
+        if not project:
+            return ActionResult(
+                False,
+                "update_project",
+                f"Project not found",
+            )
+
+        # Extract update fields
+        update_fields = {}
+        if "new_name" in action:
+            update_fields["name"] = action["new_name"]
+        if "description" in action:
+            update_fields["description"] = action["description"]
+        if "status" in action:
+            from ..core.models import ProjectStatus
+            try:
+                update_fields["status"] = ProjectStatus(action["status"])
+            except ValueError:
+                return ActionResult(
+                    False,
+                    "update_project",
+                    f"Invalid status: {action['status']}",
+                )
+        if "tags" in action:
+            update_fields["tags"] = ",".join(action["tags"]) if isinstance(action["tags"], list) else action["tags"]
+
+        if not update_fields:
+            return ActionResult(
+                False,
+                "update_project",
+                "No fields to update",
+            )
+
+        updated = self.project_service.update_project(project.id, **update_fields)
+
+        return ActionResult(
+            True,
+            "update_project",
+            f"Updated project: {updated.name}",
+            {"project_id": updated.id, "name": updated.name},
+        )
+
+    def _delete_project(self, action: Dict[str, Any]) -> ActionResult:
+        """Delete a project.
+
+        Args:
+            action: Action with 'project_id' or 'name'
+
+        Returns:
+            ActionResult indicating success
+        """
+        project_id = action.get("project_id")
+        project_name = action.get("name")
+
+        # Find project by ID or name
+        if project_id:
+            project = self.project_service.get_project(project_id)
+        elif project_name:
+            project = self.project_service.get_project_by_name(project_name)
+        else:
+            return ActionResult(
+                False,
+                "delete_project",
+                "Missing required field: project_id or name",
+            )
+
+        if not project:
+            return ActionResult(
+                False,
+                "delete_project",
+                f"Project not found",
+            )
+
+        success = self.project_service.delete_project(project.id)
+
+        if not success:
+            return ActionResult(
+                False,
+                "delete_project",
+                f"Failed to delete project {project.name}",
+            )
+
+        return ActionResult(
+            True,
+            "delete_project",
+            f"Deleted project: {project.name}",
+            {"project_id": project.id, "name": project.name},
+        )
+
+    def _search_projects(self, action: Dict[str, Any]) -> ActionResult:
+        """Search projects by name or description.
+
+        Args:
+            action: Action with 'query' field
+
+        Returns:
+            ActionResult with matching projects
+        """
+        query = action.get("query", "")
+        limit = action.get("limit", 20)
+
+        # Get all projects and filter by query
+        all_projects = self.project_service.get_all_projects()
+
+        # Simple search in name and description
+        matching_projects = [
+            p for p in all_projects
+            if query.lower() in p.name.lower() or query.lower() in (p.description or "").lower()
+        ][:limit]
+
+        projects_data = [
+            {
+                "project_id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "status": p.status.value,
+                "tags": p.tags,
+            }
+            for p in matching_projects
+        ]
+
+        return ActionResult(
+            True,
+            "search_projects",
+            f"Found {len(projects_data)} projects matching '{query}'",
+            {"projects": projects_data, "count": len(projects_data), "query": query},
+        )
+
     # Memory actions
     def _update_memory(self, action: Dict[str, Any]) -> ActionResult:
         """Update memory."""
@@ -539,6 +697,106 @@ class ActionExecutor:
             "update_memory",
             f"Updated memory: {memory.key}",
             {"key": memory.key},
+        )
+
+    def _list_memories(self, action: Dict[str, Any]) -> ActionResult:
+        """List all memories.
+
+        Args:
+            action: Action with optional 'importance_threshold' field
+
+        Returns:
+            ActionResult with list of memories
+        """
+        importance_threshold = action.get("importance_threshold", 1)
+        memories = self.memory_service.get_all_memories(min_importance=importance_threshold)
+
+        memories_data = [
+            {
+                "key": m.key,
+                "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
+                "importance": m.importance,
+                "updated_at": m.updated_at.isoformat(),
+            }
+            for m in memories
+        ]
+
+        return ActionResult(
+            True,
+            "list_memories",
+            f"Listed {len(memories_data)} memories (importance >= {importance_threshold})",
+            {"memories": memories_data, "count": len(memories_data)},
+        )
+
+    def _get_memory(self, action: Dict[str, Any]) -> ActionResult:
+        """Get memory by key.
+
+        Args:
+            action: Action with 'key' field
+
+        Returns:
+            ActionResult with memory data
+        """
+        key = action.get("key")
+        if not key:
+            return ActionResult(
+                False,
+                "get_memory",
+                "Missing required field: key",
+            )
+
+        memory = self.memory_service.get_memory(key)
+
+        if not memory:
+            return ActionResult(
+                False,
+                "get_memory",
+                f"Memory with key '{key}' not found",
+            )
+
+        return ActionResult(
+            True,
+            "get_memory",
+            f"Retrieved memory: {memory.key}",
+            {
+                "key": memory.key,
+                "content": memory.content,
+                "importance": memory.importance,
+                "updated_at": memory.updated_at.isoformat(),
+            },
+        )
+
+    def _delete_memory(self, action: Dict[str, Any]) -> ActionResult:
+        """Delete memory by key.
+
+        Args:
+            action: Action with 'key' field
+
+        Returns:
+            ActionResult indicating success
+        """
+        key = action.get("key")
+        if not key:
+            return ActionResult(
+                False,
+                "delete_memory",
+                "Missing required field: key",
+            )
+
+        success = self.memory_service.delete_memory(key)
+
+        if not success:
+            return ActionResult(
+                False,
+                "delete_memory",
+                f"Memory with key '{key}' not found",
+            )
+
+        return ActionResult(
+            True,
+            "delete_memory",
+            f"Deleted memory: {key}",
+            {"key": key},
         )
 
     # Vault actions

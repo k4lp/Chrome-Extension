@@ -227,6 +227,116 @@ class GemBrainAPI:
             for p in projects
         ]
 
+    def search_projects(self, query: str, limit: int = 20):
+        """Search projects by name or description.
+
+        Args:
+            query: Search query
+            limit: Maximum results
+
+        Returns:
+            List of matching projects
+        """
+        all_projects = self.project_service.get_all_projects()
+
+        # Simple search in name and description
+        matching = [
+            p for p in all_projects
+            if query.lower() in p.name.lower() or query.lower() in (p.description or "").lower()
+        ][:limit]
+
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "status": p.status.value,
+                "tags": p.tags,
+            }
+            for p in matching
+        ]
+
+    def update_project(self, project_id: int = None, name: str = None, **kwargs):
+        """Update a project.
+
+        Args:
+            project_id: Project ID (optional if name provided)
+            name: Project name (optional if project_id provided)
+            **kwargs: Fields to update (new_name, description, status, tags)
+
+        Returns:
+            Updated project or None
+        """
+        # Find project
+        if project_id:
+            project = self.project_service.get_project(project_id)
+        elif name:
+            project = self.project_service.get_project_by_name(name)
+        else:
+            logger.warning("update_project requires project_id or name")
+            return None
+
+        if not project:
+            logger.warning(f"Project not found: {project_id or name}")
+            return None
+
+        # Prepare updates
+        updates = {}
+        if "new_name" in kwargs:
+            updates["name"] = kwargs["new_name"]
+        if "description" in kwargs:
+            updates["description"] = kwargs["description"]
+        if "status" in kwargs:
+            from ..core.models import ProjectStatus
+            try:
+                updates["status"] = ProjectStatus(kwargs["status"])
+            except ValueError:
+                logger.warning(f"Invalid project status: {kwargs['status']}")
+        if "tags" in kwargs:
+            if isinstance(kwargs["tags"], list):
+                updates["tags"] = ",".join(kwargs["tags"])
+            else:
+                updates["tags"] = kwargs["tags"]
+
+        updated = self.project_service.update_project(project.id, **updates)
+        if updated:
+            logger.info(f"📁 Code updated project: {updated.name} (id={updated.id})")
+            return {
+                "id": updated.id,
+                "name": updated.name,
+                "description": updated.description,
+                "status": updated.status.value,
+            }
+        return None
+
+    def delete_project(self, project_id: int = None, name: str = None):
+        """Delete a project.
+
+        Args:
+            project_id: Project ID (optional if name provided)
+            name: Project name (optional if project_id provided)
+
+        Returns:
+            True if successful
+        """
+        # Find project
+        if project_id:
+            project = self.project_service.get_project(project_id)
+        elif name:
+            project = self.project_service.get_project_by_name(name)
+        else:
+            logger.warning("delete_project requires project_id or name")
+            return False
+
+        if not project:
+            logger.warning(f"Project not found: {project_id or name}")
+            return False
+
+        success = self.project_service.delete_project(project.id)
+        if success:
+            logger.info(f"🗑️ Code deleted project: {project.name} (id={project.id})")
+        return success
+
     # Memory Operations
     def store_memory(self, key: str, content: str, importance: int = 3):
         """Store or update a memory.
@@ -279,6 +389,20 @@ class GemBrainAPI:
             }
             for m in memories
         ]
+
+    def delete_memory(self, key: str):
+        """Delete a memory by key.
+
+        Args:
+            key: Memory key
+
+        Returns:
+            True if successful
+        """
+        success = self.memory_service.delete_memory(key)
+        if success:
+            logger.info(f"🗑️ Code deleted memory: {key}")
+        return success
 
     # Vault Operations (for intermediate data storage)
     def vault_store(self, title: str, content: str, item_type: str = "snippet"):
