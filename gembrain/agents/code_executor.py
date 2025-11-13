@@ -3,8 +3,10 @@
 import sys
 import io
 import traceback
+import time
 from typing import Dict, Any, Tuple
 from contextlib import redirect_stdout, redirect_stderr
+from datetime import datetime
 from loguru import logger
 
 
@@ -17,6 +19,8 @@ class CodeExecutor:
             '__builtins__': __builtins__,
             'sys': sys,
         }
+        self.execution_count = 0
+        self.execution_history = []
 
     def execute(self, code: str, timeout: int = 30) -> Dict[str, Any]:
         """Execute Python code with unrestricted access.
@@ -28,12 +32,23 @@ class CodeExecutor:
         Returns:
             Dictionary with stdout, stderr, result, and success status
         """
+        self.execution_count += 1
+        execution_id = self.execution_count
+
+        logger.warning("=" * 80)
+        logger.warning(f"CODE EXECUTION #{execution_id} - STARTING")
+        logger.warning(f"Timestamp: {datetime.now().isoformat()}")
+        logger.warning("Code to execute:")
+        logger.warning("-" * 40)
+        for i, line in enumerate(code.split('\n'), 1):
+            logger.warning(f"  {i:3d} | {line}")
+        logger.warning("-" * 40)
+
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         result = None
         error = None
-
-        logger.warning(f"Executing code:\n{code}")
+        start_time = time.time()
 
         try:
             # Redirect stdout and stderr
@@ -60,17 +75,49 @@ class CodeExecutor:
         except Exception as e:
             error = traceback.format_exc()
             success = False
-            logger.error(f"Code execution failed:\n{error}")
+            logger.error(f"Code execution #{execution_id} FAILED")
+            logger.error(f"Error:\n{error}")
 
+        execution_time = time.time() - start_time
         stdout_text = stdout_capture.getvalue()
         stderr_text = stderr_capture.getvalue()
 
-        return {
+        # Log results
+        logger.warning(f"CODE EXECUTION #{execution_id} - FINISHED")
+        logger.warning(f"Success: {success}")
+        logger.warning(f"Execution time: {execution_time:.3f}s")
+        if stdout_text:
+            logger.info(f"STDOUT:\n{stdout_text}")
+        if stderr_text:
+            logger.warning(f"STDERR:\n{stderr_text}")
+        if result is not None:
+            logger.info(f"Result: {result}")
+        if error:
+            logger.error(f"Error:\n{error}")
+        logger.warning("=" * 80)
+
+        # Store in history
+        execution_record = {
+            "id": execution_id,
+            "timestamp": datetime.now().isoformat(),
+            "code": code,
             "success": success,
             "stdout": stdout_text,
             "stderr": stderr_text,
             "result": result,
             "error": error,
+            "execution_time": execution_time,
+        }
+        self.execution_history.append(execution_record)
+
+        return {
+            "execution_id": execution_id,
+            "success": success,
+            "stdout": stdout_text,
+            "stderr": stderr_text,
+            "result": result,
+            "error": error,
+            "execution_time": execution_time,
         }
 
     def add_to_namespace(self, name: str, value: Any):
@@ -96,4 +143,20 @@ class CodeExecutor:
             '__builtins__': __builtins__,
             'sys': sys,
         }
-        logger.info("Code execution namespace reset")
+        logger.warning("Code execution namespace RESET")
+
+    def get_execution_history(self):
+        """Get execution history.
+
+        Returns:
+            List of execution records
+        """
+        return self.execution_history.copy()
+
+    def get_last_execution(self):
+        """Get last execution record.
+
+        Returns:
+            Last execution record or None
+        """
+        return self.execution_history[-1] if self.execution_history else None
