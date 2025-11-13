@@ -21,27 +21,17 @@ from .db import Base
 class TaskStatus(str, enum.Enum):
     """Task status enum."""
 
-    TODO = "todo"
-    DOING = "doing"
-    DONE = "done"
-    STALE = "stale"
-
-
-class ProjectStatus(str, enum.Enum):
-    """Project status enum."""
-
-    ACTIVE = "active"
+    PENDING = "pending"
+    ONGOING = "ongoing"
     PAUSED = "paused"
     COMPLETED = "completed"
 
 
-class VaultItemType(str, enum.Enum):
-    """Vault item type enum."""
+class GoalStatus(str, enum.Enum):
+    """Goal status enum."""
 
-    FILE = "file"
-    URL = "url"
-    SNIPPET = "snippet"
-    OTHER = "other"
+    PENDING = "pending"
+    COMPLETED = "completed"
 
 
 class AutomationTrigger(str, enum.Enum):
@@ -53,103 +43,67 @@ class AutomationTrigger(str, enum.Enum):
     MANUAL = "manual"
 
 
-class Note(Base):
-    """Note model."""
-
-    __tablename__ = "notes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False, index=True)
-    content = Column(Text, nullable=False, default="")
-    tags = Column(String(1000), default="")  # Comma-separated tags
-    pinned = Column(Boolean, default=False, index=True)
-    archived = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
-
-    # Relationships
-    tasks = relationship("Task", back_populates="note", cascade="all, delete-orphan")
-
-    def __repr__(self) -> str:
-        return f"<Note(id={self.id}, title='{self.title}')>"
-
-
 class Task(Base):
-    """Task model."""
+    """Task model for iterative reasoning workflow."""
 
     __tablename__ = "tasks"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False, index=True)
-    status = Column(SQLEnum(TaskStatus), default=TaskStatus.TODO, nullable=False, index=True)
-    due_date = Column(DateTime, nullable=True, index=True)
-    created_at = Column(DateTime, default=datetime.now, nullable=False)
-    completed_at = Column(DateTime, nullable=True)
-
-    # Foreign keys
-    note_id = Column(Integer, ForeignKey("notes.id", ondelete="SET NULL"), nullable=True)
-    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
-
-    # Relationships
-    note = relationship("Note", back_populates="tasks")
-    project = relationship("Project", back_populates="tasks")
-
-    def __repr__(self) -> str:
-        return f"<Task(id={self.id}, title='{self.title}', status={self.status})>"
-
-
-class Project(Base):
-    """Project model."""
-
-    __tablename__ = "projects"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(500), nullable=False, index=True)
-    description = Column(Text, default="")
-    status = Column(
-        SQLEnum(ProjectStatus), default=ProjectStatus.ACTIVE, nullable=False, index=True
-    )
-    tags = Column(String(1000), default="")  # Comma-separated tags
+    content = Column(Text, nullable=False)  # What needs to be done
+    notes = Column(Text, default="")  # LLM annotations
+    status = Column(SQLEnum(TaskStatus), default=TaskStatus.PENDING, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
-    # Relationships
-    tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
-
     def __repr__(self) -> str:
-        return f"<Project(id={self.id}, name='{self.name}', status={self.status})>"
+        return f"<Task(id={self.id}, status={self.status})>"
 
 
 class Memory(Base):
-    """Memory (long-term facts) model."""
+    """Memory model for storing hints, clues, and data."""
 
     __tablename__ = "memories"
 
     id = Column(Integer, primary_key=True, index=True)
-    key = Column(String(200), nullable=False, unique=True, index=True)
-    content = Column(Text, nullable=False)
-    importance = Column(Integer, default=3, nullable=False)  # 1-5 scale
+    content = Column(Text, nullable=False)  # Memory content
+    notes = Column(Text, default="")  # LLM annotations
     created_at = Column(DateTime, default=datetime.now, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
     def __repr__(self) -> str:
-        return f"<Memory(id={self.id}, key='{self.key}', importance={self.importance})>"
+        return f"<Memory(id={self.id})>"
 
 
-class VaultItem(Base):
-    """Vault item model."""
+class Goal(Base):
+    """Goal model for final output verification."""
 
-    __tablename__ = "vault_items"
+    __tablename__ = "goals"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False, index=True)
-    type = Column(SQLEnum(VaultItemType), default=VaultItemType.OTHER, nullable=False, index=True)
-    path_or_url = Column(String(2000), nullable=False)
-    item_metadata = Column(Text, default="{}")  # JSON string - renamed from 'metadata' (reserved)
+    content = Column(Text, nullable=False)  # Goal description
+    notes = Column(Text, default="")  # LLM annotations
+    status = Column(SQLEnum(GoalStatus), default=GoalStatus.PENDING, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
 
     def __repr__(self) -> str:
-        return f"<VaultItem(id={self.id}, title='{self.title}', type={self.type})>"
+        return f"<Goal(id={self.id}, status={self.status})>"
+
+
+class Datavault(Base):
+    """Datavault model for storing large blobs of data."""
+
+    __tablename__ = "datavault"
+
+    id = Column(Integer, primary_key=True, index=True)
+    content = Column(Text, nullable=False)  # Large blob (code/text/output)
+    filetype = Column(String(50), default="text")  # text, py, js, json, md, etc.
+    notes = Column(Text, default="")  # LLM annotations
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<Datavault(id={self.id}, filetype={self.filetype})>"
 
 
 class AutomationRule(Base):
