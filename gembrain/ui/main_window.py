@@ -16,10 +16,9 @@ from PyQt6.QtGui import QAction
 from loguru import logger
 
 from .widgets.chat_panel import ChatPanel
-from .widgets.notes_panel import NotesPanel
 from .widgets.tasks_panel import TasksPanel
-from .widgets.projects_panel import ProjectsPanel
-from .widgets.vault_panel import VaultPanel
+# NOTE: Notes, Projects, Vault panels removed - data structures redesigned to Memory, Goals, Datavault
+# TODO: Create new panels for Memory, Goals, Datavault when UI is redesigned
 from .widgets.context_panel import ContextPanel
 from .widgets.status_bar import CustomStatusBar
 from .widgets.settings_dialog import SettingsDialog
@@ -79,17 +78,12 @@ class MainWindow(QMainWindow):
 
         # Create panels
         self.chat_panel = ChatPanel(self.db_session, self.orchestrator, self.settings)
-        self.notes_panel = NotesPanel(self.db_session, self.settings)
         self.tasks_panel = TasksPanel(self.db_session, self.settings)
-        self.projects_panel = ProjectsPanel(self.db_session, self.settings)
-        self.vault_panel = VaultPanel(self.db_session, self.settings)
+        # TODO: Add panels for Memory, Goals, Datavault when UI is redesigned
 
         # Add panels to stack
         self.stack.addWidget(self.chat_panel)
-        self.stack.addWidget(self.notes_panel)
         self.stack.addWidget(self.tasks_panel)
-        self.stack.addWidget(self.projects_panel)
-        self.stack.addWidget(self.vault_panel)
 
         # RIGHT: Context panel
         if self.settings.ui.show_context_panel:
@@ -132,10 +126,8 @@ class MainWindow(QMainWindow):
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("navList")
         self.nav_list.addItem("💬 Chat")
-        self.nav_list.addItem("📝 Notes")
         self.nav_list.addItem("✓ Tasks")
-        self.nav_list.addItem("📁 Projects")
-        self.nav_list.addItem("🔒 Vault")
+        # TODO: Add navigation items for Memory, Goals, Datavault panels when UI is redesigned
         layout.addWidget(self.nav_list)
 
         # Settings button at bottom
@@ -276,7 +268,6 @@ class MainWindow(QMainWindow):
             # Refresh panels
             if self.context_panel:
                 self.context_panel.refresh()
-            self.notes_panel.refresh()
             self.tasks_panel.refresh()
 
             QMessageBox.information(
