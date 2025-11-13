@@ -26,6 +26,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "include_context_tasks": True,
         "max_context_items": 10,
         "enable_code_execution": True,
+        "enable_iterative_reasoning": False,
+        "max_reasoning_iterations": 50,
+        "verification_model": "gemini-1.5-flash",
+        "auto_verify": True,
     },
     "automations": {
         "daily_review_enabled": False,

@@ -211,6 +211,32 @@ class SettingsDialog(QDialog):
         warning_label.setWordWrap(True)
         layout.addRow("", warning_label)
 
+        # Iterative Reasoning
+        layout.addRow("", QLabel(""))  # Spacer
+        iterative_label = QLabel("<b>🧠 Iterative Reasoning Mode</b>")
+        layout.addRow("", iterative_label)
+
+        self.enable_iterative_reasoning_check = QCheckBox()
+        layout.addRow("Enable Iterative Reasoning:", self.enable_iterative_reasoning_check)
+
+        self.max_reasoning_iterations_spin = QSpinBox()
+        self.max_reasoning_iterations_spin.setRange(5, 200)
+        layout.addRow("Max Reasoning Iterations:", self.max_reasoning_iterations_spin)
+
+        self.verification_model_edit = QLineEdit()
+        self.verification_model_edit.setPlaceholderText("e.g., gemini-1.5-flash")
+        layout.addRow("Verification Model:", self.verification_model_edit)
+
+        self.auto_verify_check = QCheckBox()
+        layout.addRow("Auto-Verify Results:", self.auto_verify_check)
+
+        reasoning_info = QLabel(
+            "<small style='color: #666;'>Iterative reasoning mode allows the agent to think through "
+            "complex problems in multiple steps with strict verification.</small>"
+        )
+        reasoning_info.setWordWrap(True)
+        layout.addRow("", reasoning_info)
+
         return widget
 
     def _create_storage_tab(self) -> QWidget:
@@ -336,6 +362,16 @@ class SettingsDialog(QDialog):
         self.max_context_spin.setValue(self.settings.agent_behavior.max_context_items)
         self.enable_code_exec_check.setChecked(self.settings.agent_behavior.enable_code_execution)
 
+        # Iterative Reasoning
+        self.enable_iterative_reasoning_check.setChecked(
+            self.settings.agent_behavior.enable_iterative_reasoning
+        )
+        self.max_reasoning_iterations_spin.setValue(
+            self.settings.agent_behavior.max_reasoning_iterations
+        )
+        self.verification_model_edit.setText(self.settings.agent_behavior.verification_model)
+        self.auto_verify_check.setChecked(self.settings.agent_behavior.auto_verify)
+
         # Storage
         self.db_path_edit.setText(self.settings.storage.db_path)
         self.backup_dir_edit.setText(self.settings.storage.backup_dir)
@@ -387,6 +423,16 @@ class SettingsDialog(QDialog):
         self.settings.agent_behavior.enable_code_execution = (
             self.enable_code_exec_check.isChecked()
         )
+
+        # Iterative Reasoning
+        self.settings.agent_behavior.enable_iterative_reasoning = (
+            self.enable_iterative_reasoning_check.isChecked()
+        )
+        self.settings.agent_behavior.max_reasoning_iterations = (
+            self.max_reasoning_iterations_spin.value()
+        )
+        self.settings.agent_behavior.verification_model = self.verification_model_edit.text()
+        self.settings.agent_behavior.auto_verify = self.auto_verify_check.isChecked()
 
         # Storage
         self.settings.storage.db_path = self.db_path_edit.text()
