@@ -86,6 +86,44 @@ class Orchestrator:
             OrchestratorResponse
         """
         try:
+            # Check if iterative reasoning is enabled
+            if self.settings.agent_behavior.enable_iterative_reasoning:
+                logger.info("🧠 Iterative reasoning is ENABLED - using iterative mode")
+
+                # Run iterative reasoning
+                session, approved = self.run_iterative_reasoning(
+                    user_query=user_message,
+                    max_iterations=self.settings.agent_behavior.max_reasoning_iterations,
+                    verification_model=self.settings.agent_behavior.verification_model,
+                    ui_context=ui_context,
+                )
+
+                # Use final output as reply
+                reply_text = session.final_output or "Reasoning completed but no output generated."
+
+                # Extract actions from all iterations
+                actions = []
+                for iteration in session.iterations:
+                    if iteration.actions_taken:
+                        actions.extend(iteration.actions_taken)
+
+                logger.info(f"📊 Iterative reasoning: {len(session.iterations)} iterations, {len(actions)} total actions")
+                logger.info(f"✅ Verification: {'APPROVED' if approved else 'FAILED'}")
+
+                # Optionally execute actions
+                action_results = None
+                if auto_apply_actions and actions:
+                    action_results = self._execute_actions(actions)
+
+                return OrchestratorResponse(
+                    reply_text=reply_text,
+                    actions=actions,
+                    action_results=action_results,
+                )
+
+            # Standard mode (iterative reasoning disabled)
+            logger.info("💬 Iterative reasoning is DISABLED - using standard mode")
+
             # Build context
             context_blocks = self._build_context(ui_context)
 
