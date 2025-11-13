@@ -89,3 +89,42 @@ def close_db() -> None:
         _engine = None
         _SessionLocal = None
         logger.info("Database connections closed")
+
+
+def recreate_db(db_path: str) -> None:
+    """Drop all tables and recreate schema.
+
+    CAUTION: This will delete all data!
+
+    Args:
+        db_path: Path to SQLite database file
+    """
+    global _engine, _SessionLocal
+
+    # Close existing connections
+    close_db()
+
+    # Ensure directory exists
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # Create engine
+    _engine = create_engine(
+        f"sqlite:///{db_path}",
+        echo=False,
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
+
+    # Import all models to register them
+    from . import models  # noqa: F401
+
+    # Drop all tables
+    Base.metadata.drop_all(bind=_engine)
+    logger.info("Dropped all tables")
+
+    # Create all tables with new schema
+    Base.metadata.create_all(bind=_engine)
+    logger.info(f"Recreated database at {db_path} with new schema")
+
+    # Create session factory
+    _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)

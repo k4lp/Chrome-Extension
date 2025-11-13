@@ -85,22 +85,25 @@ When you execute Python code, you have access to the 'gb' object with full GemBr
 
 Instead of returning large data to the LLM:
 ✗ BAD:  return large_json_data  # Hits token limits!
-✓ GOOD: gb.vault_store("results", json.dumps(data))  # Store it!
-✓ GOOD: gb.create_note("Analysis", summary)  # Create notes directly!
-✓ GOOD: for item in items: gb.create_task(item)  # Create tasks in code!
+✓ GOOD: gb.datavault_store(json.dumps(data), filetype="json")  # Store it!
+✓ GOOD: gb.create_memory(summary, notes="Analysis summary")  # Store insights!
+✓ GOOD: for item in items: gb.create_task(item['content'])  # Create tasks in code!
 
 Available in code as 'gb':
-- gb.create_note(title, content, tags=[])
-- gb.search_notes(query)
-- gb.create_task(title, due_date=None, project_name=None)
-- gb.search_tasks(query)
-- gb.complete_task(task_id)
-- gb.create_project(name, description, tags=[])
-- gb.store_memory(key, content, importance=3)
-- gb.get_memory(key)
-- gb.vault_store(title, content, item_type="snippet")  # Store intermediate data!
-- gb.vault_search(query)
-- gb.vault_get(item_id)
+- gb.create_task(content, notes="", status="pending")
+- gb.update_task(task_id, content=None, notes=None, status=None)
+- gb.delete_task(task_id)
+- gb.list_tasks(status=None, limit=50)
+- gb.search_tasks(query, limit=20)
+- gb.create_memory(content, notes="")
+- gb.update_memory(memory_id, content=None, notes=None)
+- gb.search_memories(query, limit=20)
+- gb.list_memories(limit=50)
+- gb.create_goal(content, notes="", status="pending")
+- gb.list_goals(status=None, limit=50)
+- gb.datavault_store(content, filetype="text", notes="")  # Store large data!
+- gb.datavault_get(item_id)
+- gb.datavault_search(query, limit=20)
 - gb.log(message)
 
 Example code:
@@ -110,15 +113,15 @@ import json
 # Analyze data
 results = analyze_large_dataset(data)
 
-# DON'T return it - store it!
-gb.vault_store("analysis_results", json.dumps(results), "snippet")
+# DON'T return it - store it in datavault!
+gb.datavault_store(json.dumps(results), filetype="json", notes="Analysis results")
 
 # Create tasks from results
 for task in results['todo_items']:
-    gb.create_task(task['title'], task['due_date'])
+    gb.create_task(task['content'], notes=task.get('details', ''))
 
-# Create summary note
-gb.create_note("Analysis Complete", summary_text, tags=["analysis"])
+# Store insights in memory
+gb.create_memory("Analysis completed successfully", notes="1000 items processed")
 
 # Log what you did
 gb.log("Processed 1000 items, created 15 tasks")
@@ -155,7 +158,7 @@ ITERATION STRUCTURE
   "reasoning": "COMPLETE DETAILED REASONING - Put ALL your thoughts here in markdown format. Include what you're doing, why, what you observe, and insights gained.",
   "observations": ["<observation 1>", ...],
   "next_actions": [
-    {"type": "vault_store", "title": "step_X_results", "content": "..."},
+    {"type": "datavault_store", "content": "...", "filetype": "text", "notes": "step_X_results"},
     {"type": "execute_code", "code": "..."},
     ...
   ],
@@ -170,8 +173,8 @@ ITERATION STRUCTURE
   "iteration": <number>,
   "reasoning": "COMPLETE FINAL REASONING - Comprehensive summary of the entire process, what was accomplished, and conclusions.",
   "observations": ["All subtasks completed", ...],
-  "final_output": "Complete answer formatted in MARKDOWN with references to vault items. Use proper markdown formatting: headings, lists, code blocks, tables, etc.",
-  "completion_reason": "All subtasks complete, results stored in vault",
+  "final_output": "Complete answer formatted in MARKDOWN with references to datavault items. Use proper markdown formatting: headings, lists, code blocks, tables, etc.",
+  "completion_reason": "All subtasks complete, results stored in datavault",
   "is_final": true
 }
 ```
@@ -205,9 +208,10 @@ REASONING GUIDELINES
 AVAILABLE ACTIONS
 ═══════════════════════════════════════════════════════════════════════════════
 
-Query Actions: list_notes, search_notes, list_tasks, search_tasks, list_projects
-Create Actions: create_note, add_task, create_project, update_memory, add_vault_item
-Update Actions: update_note, update_task
+Query Actions: list_tasks, search_tasks, list_memories, search_memories, list_goals, search_goals, datavault_list, datavault_search
+Create Actions: create_task, create_memory, create_goal, datavault_store
+Update Actions: update_task, update_memory, update_goal, datavault_update
+Delete Actions: delete_task, delete_memory, delete_goal, datavault_delete
 Execute: execute_code (for analysis, automation, complex operations)
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -271,11 +275,13 @@ You will receive:
 2. The complete reasoning log (all iterations)
 3. All actions taken and their results
 4. The proposed final output (may be empty!)
+5. **GOALS** - Expected outcomes that define success criteria (if any exist)
 
 Your jobs:
 1. Decide if this work is acceptable or needs more iterations
 2. **ALWAYS provide session_summary** - a user-facing markdown summary of what was accomplished
-3. If approved: false, provide specific recommendations for what needs to be done next
+3. **Check if GOALS are met** - If goals exist, verify the output achieves them
+4. If approved: false, provide specific recommendations for what needs to be done next
 
 CRITICAL: Even if final_output is missing, you must analyze the iterations and action results
 to create a helpful session_summary that the user can understand.
@@ -288,26 +294,31 @@ VERIFICATION CRITERIA (ALL must be satisfied)
    - Does the output answer the user's question completely?
    - Are all explicit AND implicit requirements met?
 
-2. **Reasoning Quality** ✓
+2. **Goals Met** ✓
+   - If goals exist, does the output achieve them?
+   - Are all specified success criteria satisfied?
+   - N/A if no goals were defined (score as 10/10)
+
+3. **Reasoning Quality** ✓
    - Is the reasoning logical and coherent?
    - Are conclusions supported by evidence?
    - Were appropriate actions taken?
 
-3. **Completeness** ✓
+4. **Completeness** ✓
    - Were all sub-problems addressed?
    - Is the output actionable and clear?
    - Are edge cases considered?
 
-4. **Correctness** ✓
+5. **Correctness** ✓
    - Are facts accurate?
    - Are actions appropriate?
    - Is the solution valid?
 
-5. **No Hallucinations** ✓
+6. **No Hallucinations** ✓
    - Are all claims backed by data?
    - No invented information?
 
-6. **Proper Use of Tools** ✓
+7. **Proper Use of Tools** ✓
    - Were the right actions used?
    - Were IDs retrieved (not guessed)?
    - Was code execution appropriate?
@@ -322,6 +333,7 @@ OUTPUT FORMAT (MANDATORY)
   "confidence": 0.0-1.0,
   "criteria_scores": {
     "query_addressed": 0-10,
+    "goals_met": 0-10,
     "reasoning_quality": 0-10,
     "completeness": 0-10,
     "correctness": 0-10,
@@ -684,6 +696,28 @@ class IterativeReasoner:
 === ORIGINAL QUERY ===
 {session.user_query}
 
+"""
+
+        # Fetch and include Goals (if any exist)
+        try:
+            from ..core.models import GoalStatus
+            # Access goal_service through action_handler
+            pending_goals = self.action_handler.goal_service.get_all_goals(GoalStatus.PENDING)
+
+            if pending_goals:
+                context += "=== GOALS (Expected Outcomes for Verification) ===\n"
+                for goal in pending_goals:
+                    context += f"- [{goal.id}] {goal.content}\n"
+                    if goal.notes:
+                        context += f"  Notes: {goal.notes}\n"
+                context += "\n**IMPORTANT**: Verify that the final output achieves these goals!\n\n"
+            else:
+                context += "=== GOALS ===\nNo goals defined for this session.\n\n"
+        except Exception as e:
+            logger.warning(f"Failed to fetch goals for verification: {e}")
+            context += "=== GOALS ===\nUnable to fetch goals.\n\n"
+
+        context += f"""
 === REASONING LOG ===
 Total Iterations: {len(session.iterations)}
 Duration: {(session.completed_at - session.started_at).total_seconds():.2f}s
