@@ -358,9 +358,13 @@ class IterativeReasoner:
 
             logger.info(f"🔄 Iteration {iteration_count}/{self.max_iterations}")
 
-            # Call progress callback if provided
+            # Emit iteration start progress
             if progress_callback:
-                progress_callback(f"🔄 Iteration {iteration_count}/{self.max_iterations}")
+                progress_callback({
+                    "type": "iteration_start",
+                    "iteration": iteration_count,
+                    "max_iterations": self.max_iterations,
+                })
 
             # Build context for this iteration
             context_blocks = self._build_iteration_context(session, initial_context)
@@ -386,6 +390,13 @@ class IterativeReasoner:
 
                 logger.debug(f"✅ Parsed iteration data: {json.dumps(iteration_data, indent=2)}")
 
+                # Emit thought/reasoning progress
+                if progress_callback and iteration_data.get("reasoning"):
+                    progress_callback({
+                        "type": "thought",
+                        "content": iteration_data.get("reasoning", ""),
+                    })
+
                 # Create iteration object
                 iteration = ReasoningIteration(
                     iteration_number=iteration_count,
@@ -395,10 +406,26 @@ class IterativeReasoner:
                 )
                 logger.debug(f"📝 Created iteration object with {len(iteration.observations)} observations")
 
+                # Emit observations progress
+                if progress_callback and iteration.observations:
+                    observations_text = "\n".join(f"• {obs}" for obs in iteration.observations)
+                    progress_callback({
+                        "type": "observation",
+                        "content": observations_text,
+                    })
+
                 # Execute actions if any
                 if "next_actions" in iteration_data:
                     iteration.actions_taken = iteration_data["next_actions"]
                     logger.info(f"🎬 {len(iteration.actions_taken)} actions to execute")
+
+                    # Emit actions planned progress
+                    if progress_callback:
+                        progress_callback({
+                            "type": "actions_planned",
+                            "actions": iteration.actions_taken,
+                        })
+
                     # Action execution would happen here (integrate with ActionExecutor)
                 else:
                     logger.debug("ℹ️ No actions in this iteration")
@@ -416,6 +443,15 @@ class IterativeReasoner:
                     session.completed_at = datetime.now()
                     logger.info(f"✅ Reasoning complete after {iteration_count} iterations")
                     logger.info(f"📤 Final output length: {len(session.final_output)} chars")
+
+                    # Emit completion progress
+                    if progress_callback:
+                        progress_callback({
+                            "type": "reasoning_complete",
+                            "success": True,
+                            "message": f"Completed after {iteration_count} iterations",
+                        })
+
                     break
                 else:
                     logger.debug(f"⏩ Continuing to next iteration (not final)")
