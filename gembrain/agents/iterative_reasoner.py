@@ -336,12 +336,14 @@ class IterativeReasoner:
         self,
         user_query: str,
         initial_context: Optional[List[str]] = None,
+        progress_callback: Optional[callable] = None,
     ) -> ReasoningSession:
         """Run iterative reasoning on a query.
 
         Args:
             user_query: User's query/task
             initial_context: Optional initial context
+            progress_callback: Optional callback for progress updates (receives message string)
 
         Returns:
             Complete reasoning session
@@ -355,6 +357,10 @@ class IterativeReasoner:
             iteration_count += 1
 
             logger.info(f"🔄 Iteration {iteration_count}/{self.max_iterations}")
+
+            # Call progress callback if provided
+            if progress_callback:
+                progress_callback(f"🔄 Iteration {iteration_count}/{self.max_iterations}")
 
             # Build context for this iteration
             context_blocks = self._build_iteration_context(session, initial_context)
