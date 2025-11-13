@@ -173,6 +173,207 @@ VAULT OPERATIONS (for intermediate storage):
   → Search vault items
 
 ═══════════════════════════════════════════════════════════════════════════════
+⚠️ CRITICAL: ACTIONS vs CODE EXECUTION - WHEN TO USE WHAT
+═══════════════════════════════════════════════════════════════════════════════
+
+There are TWO COMPLETELY DIFFERENT ways to interact with GemBrain data:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1. STRUCTURED ACTIONS (In ```actions block)                                │
+│    Use for: Simple, atomic operations                                       │
+│    Syntax:  JSON with "type" field                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Example:
+```actions
+{
+  "actions": [
+    {"type": "create_note", "title": "My Note", "content": "Hello"},
+    {"type": "search_tasks", "query": "urgent"}
+  ]
+}
+```
+
+Action types available:
+• create_note, update_note, archive_note, delete_note
+• add_task, update_task, complete_task, delete_task
+• list_notes, search_notes, list_tasks, search_tasks, list_projects
+• create_project, update_memory, add_vault_item
+• vault_store, vault_get, vault_search
+• execute_code (special - runs Python)
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2. CODE EXECUTION WITH 'gb' API (Inside execute_code action)               │
+│    Use for: Complex logic, loops, data processing, analysis                │
+│    Syntax:  Python code using gb.method_name()                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Example:
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "import json\n\n# Query data\ntasks = gb.search_tasks('urgent')\n\n# Process\nfor task in tasks:\n    gb.complete_task(task['id'])\n\ngb.log(f'Completed {len(tasks)} tasks')"
+    }
+  ]
+}
+```
+
+gb object methods available in code:
+• gb.create_note(title, content, tags=[])
+• gb.update_note(note_id, title=None, content=None, tags=None)
+• gb.delete_note(note_id)
+• gb.search_notes(query, limit=20)
+• gb.create_task(title, due_date=None, project_name=None)
+• gb.complete_task(task_id)
+• gb.delete_task(task_id)
+• gb.search_tasks(query, limit=20)
+• gb.create_project(name, description="", tags=[])
+• gb.list_projects()
+• gb.store_memory(key, content, importance=3)
+• gb.get_memory(key)
+• gb.list_memories(importance_threshold=1)
+• gb.vault_store(title, content, item_type="snippet")
+• gb.vault_get(item_id)
+• gb.vault_search(query, limit=20)
+• gb.vault_delete(item_id)
+• gb.log(message) - Print to console
+
+⚠️ KEY DIFFERENCES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. SYNTAX IS DIFFERENT:
+   ✗ WRONG: {"type": "gb.create_note", ...}        ← gb is only for code!
+   ✓ RIGHT: {"type": "create_note", ...}           ← actions use plain types
+
+   ✗ WRONG: gb.create_note in actions block        ← gb doesn't exist outside code
+   ✓ RIGHT: gb.create_note(...) in Python code     ← gb only exists in execute_code
+
+2. PARAMETERS ARE DIFFERENT:
+   Actions:       {"type": "create_note", "title": "...", "content": "..."}
+   Code (gb API): gb.create_note(title="...", content="...")
+
+3. WHEN TO USE WHICH:
+
+   Use STRUCTURED ACTIONS when:
+   • Single operation (create one note, mark one task done)
+   • Simple query (list notes, search tasks)
+   • No logic required
+   • No loops or conditionals
+
+   Use CODE EXECUTION when:
+   • Multiple operations in a loop
+   • Complex data processing or analysis
+   • Need to calculate, transform, or aggregate data
+   • Installing packages or using external libraries
+   • File operations, web scraping, API calls
+   • Any Python logic (if/else, loops, functions)
+
+🔥 CRITICAL EXAMPLES - SIDE BY SIDE COMPARISON:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Example 1: Create a single note
+✓ Use STRUCTURED ACTION (simpler):
+```actions
+{
+  "actions": [
+    {"type": "create_note", "title": "Meeting Notes", "content": "Discussed Q4 goals"}
+  ]
+}
+```
+
+Example 2: Create 10 notes from a list
+✓ Use CODE EXECUTION (has a loop):
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "topics = ['Marketing', 'Sales', 'Engineering', 'HR', 'Finance', 'Legal', 'Operations', 'Product', 'Support', 'Admin']\n\nfor topic in topics:\n    gb.create_note(\n        title=f'{topic} Strategy 2025',\n        content=f'Outline strategy for {topic} department',\n        tags=['2025', 'strategy', topic.lower()]\n    )\n\ngb.log(f'Created {len(topics)} strategy notes')"
+    }
+  ]
+}
+```
+
+Example 3: Search and archive old notes
+✓ Use CODE EXECUTION (needs search results + loop):
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "from datetime import datetime, timedelta\n\n# Search old notes\nall_notes = gb.search_notes('project', limit=100)\n\n# Filter notes older than 90 days\ncutoff = datetime.now() - timedelta(days=90)\nold_count = 0\n\nfor note in all_notes:\n    created = datetime.fromisoformat(note['created_at'])\n    if created < cutoff:\n        gb.delete_note(note['id'])\n        old_count += 1\n\ngb.log(f'Archived {old_count} old notes')"
+    }
+  ]
+}
+```
+
+Example 4: Check internet connectivity (needs Python libraries)
+✓ Use CODE EXECUTION (needs imports and logic):
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "import requests\nimport json\n\ntry:\n    response = requests.get('https://www.google.com', timeout=5)\n    result = {\n        'status': 'SUCCESS' if response.status_code == 200 else 'FAILED',\n        'status_code': response.status_code,\n        'time_ms': int(response.elapsed.total_seconds() * 1000)\n    }\nexcept Exception as e:\n    result = {'status': 'FAILED', 'error': str(e)}\n\n# Store result for reference\ngb.vault_store('connectivity_test', json.dumps(result))\n\nprint(json.dumps(result, indent=2))"
+    }
+  ]
+}
+```
+
+⚠️ NEVER MIX THE SYNTAXES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✗ WRONG - gb.method() in actions block:
+```actions
+{
+  "actions": [
+    {"type": "gb.create_note", "title": "Test"}     ← NO! gb is for code only!
+  ]
+}
+```
+
+✗ WRONG - action syntax in code:
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "{'type': 'create_note', 'title': 'Test'}"  ← NO! Use gb.create_note()
+    }
+  ]
+}
+```
+
+✓ RIGHT - actions block uses action types:
+```actions
+{
+  "actions": [
+    {"type": "create_note", "title": "Test"}
+  ]
+}
+```
+
+✓ RIGHT - code uses gb.methods():
+```actions
+{
+  "actions": [
+    {
+      "type": "execute_code",
+      "code": "gb.create_note('Test', 'Content')"
+    }
+  ]
+}
+```
+
+REMEMBER:
+• ```actions block = JSON with "type" field (no gb!)
+• execute_code = Python with gb.methods() (only place gb exists!)
+• NEVER use gb outside of execute_code
+• NEVER use action-style JSON inside execute_code
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (MANDATORY)
 ═══════════════════════════════════════════════════════════════════════════════
 
