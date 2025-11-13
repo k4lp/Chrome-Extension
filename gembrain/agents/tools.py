@@ -10,13 +10,12 @@ import time
 import traceback
 
 from ..core.services import (
-    NoteService,
     TaskService,
-    ProjectService,
     MemoryService,
-    VaultService,
+    GoalService,
+    DatavaultService,
 )
-from ..core.models import TaskStatus, VaultItemType
+from ..core.models import TaskStatus, GoalStatus
 from .code_executor import CodeExecutor
 from .code_api import GemBrainAPI
 
@@ -39,23 +38,31 @@ class ActionExecutor:
 
     # Actions that support retry on failure
     RETRYABLE_ACTIONS = {
-        "create_note",
-        "update_note",
-        "create_project",
-        "update_memory",
-        "add_vault_item",
-        "add_task",
+        "create_task",
         "update_task",
+        "create_memory",
+        "update_memory",
+        "create_goal",
+        "update_goal",
+        "datavault_store",
+        "datavault_update",
     }
 
     # Actions that should not be retried (destructive or query actions)
     NON_RETRYABLE_ACTIONS = {
-        "delete_note",
         "delete_task",
-        "archive_note",
+        "delete_memory",
+        "delete_goal",
+        "datavault_delete",
         "execute_code",
-        "list_notes",
-        "search_notes",
+        "list_tasks",
+        "search_tasks",
+        "list_memories",
+        "search_memories",
+        "list_goals",
+        "search_goals",
+        "datavault_list",
+        "datavault_search",
     }
 
     def __init__(
@@ -74,21 +81,19 @@ class ActionExecutor:
             retry_delay: Delay between retries in seconds
         """
         self.db = db
-        self.note_service = NoteService(db)
         self.task_service = TaskService(db)
-        self.project_service = ProjectService(db)
         self.memory_service = MemoryService(db)
-        self.vault_service = VaultService(db)
+        self.goal_service = GoalService(db)
+        self.datavault_service = DatavaultService(db)
         self.enable_code_execution = enable_code_execution
 
         # Create GemBrain API for code execution
         if enable_code_execution:
             services = {
-                "note_service": self.note_service,
                 "task_service": self.task_service,
-                "project_service": self.project_service,
                 "memory_service": self.memory_service,
-                "vault_service": self.vault_service,
+                "goal_service": self.goal_service,
+                "datavault_service": self.datavault_service,
             }
             gembrain_api = GemBrainAPI(db, services)
             self.code_executor = CodeExecutor(gembrain_api)
@@ -114,26 +119,31 @@ class ActionExecutor:
 
         # Type-specific validation
         required_fields = {
-            "create_note": ["title"],
-            "update_note": ["note_id"],
-            "archive_note": ["note_id"],
-            "delete_note": ["note_id"],
-            "add_task": ["title"],
+            "create_task": ["content"],
             "update_task": ["task_id"],
-            "complete_task": ["task_id"],
             "delete_task": ["task_id"],
-            "create_project": ["name"],
-            "update_memory": ["key", "content"],
-            "add_vault_item": ["title", "path_or_url"],
-            "execute_code": ["code"],
-            "list_notes": [],
-            "search_notes": ["query"],
+            "get_task": ["task_id"],
             "list_tasks": [],
             "search_tasks": ["query"],
-            "list_projects": [],
-            "vault_store": ["title", "content"],
-            "vault_get": ["item_id"],
-            "vault_search": ["query"],
+            "create_memory": ["content"],
+            "update_memory": ["memory_id"],
+            "delete_memory": ["memory_id"],
+            "get_memory": ["memory_id"],
+            "list_memories": [],
+            "search_memories": ["query"],
+            "create_goal": ["content"],
+            "update_goal": ["goal_id"],
+            "delete_goal": ["goal_id"],
+            "get_goal": ["goal_id"],
+            "list_goals": [],
+            "search_goals": ["query"],
+            "datavault_store": ["content"],
+            "datavault_get": ["item_id"],
+            "datavault_update": ["item_id"],
+            "datavault_delete": ["item_id"],
+            "datavault_list": [],
+            "datavault_search": ["query"],
+            "execute_code": ["code"],
         }
 
         if action_type in required_fields:
@@ -156,90 +166,58 @@ class ActionExecutor:
         Returns:
             ActionResult
         """
+        start_time = time.time()
+        last_error = None
+        retry_count = 0
+
         # Determine if action is retryable
         is_retryable = action_type in self.RETRYABLE_ACTIONS
         max_attempts = self.max_retries + 1 if is_retryable else 1
 
-        last_error = None
-        start_time = time.time()
-
         for attempt in range(max_attempts):
             try:
-                # Execute the handler
                 result = handler(action)
-
-                # If successful, add timing and return
-                if result.success:
-                    result.execution_time = time.time() - start_time
-                    result.retry_count = attempt
-                    return result
-
-                # If failed but not retryable, return immediately
-                if not is_retryable:
-                    result.execution_time = time.time() - start_time
-                    return result
-
-                # Failed but retryable - store error and retry
-                last_error = result.message
-                if attempt < max_attempts - 1:
-                    logger.warning(
-                        f"⚠️ Action failed (attempt {attempt + 1}/{max_attempts}): {result.message}"
-                    )
-                    logger.warning(f"Retrying in {self.retry_delay}s...")
-                    time.sleep(self.retry_delay)
-                    continue
-
-                # All retries exhausted
+                result.retry_count = retry_count
                 result.execution_time = time.time() - start_time
-                result.retry_count = attempt
                 return result
 
-            except SQLAlchemyError as e:
-                # Database error - rollback and retry if applicable
-                self.db.rollback()
-                last_error = f"Database error: {str(e)}"
-                logger.error(f"❌ Database error in action {action_type}: {e}")
-
-                if is_retryable and attempt < max_attempts - 1:
-                    logger.warning(f"Retrying after database error (attempt {attempt + 1}/{max_attempts})...")
-                    time.sleep(self.retry_delay)
-                    continue
-
-                return ActionResult(
-                    False,
-                    action_type,
-                    f"Database error after {attempt + 1} attempts: {str(e)}",
-                    error_details=traceback.format_exc(),
-                    retry_count=attempt,
-                    execution_time=time.time() - start_time,
-                )
-
             except Exception as e:
-                # General error
-                last_error = str(e)
-                logger.error(f"❌ Error in action {action_type}: {e}")
-                logger.error(traceback.format_exc())
+                last_error = e
+                retry_count += 1
+                error_msg = str(e)
+                error_trace = traceback.format_exc()
 
-                if is_retryable and attempt < max_attempts - 1:
-                    logger.warning(f"Retrying after error (attempt {attempt + 1}/{max_attempts})...")
-                    time.sleep(self.retry_delay)
-                    continue
+                logger.error(f"✗ EXECUTION ERROR (attempt {attempt + 1}/{max_attempts}): {error_msg}")
+                logger.debug(f"Traceback: {error_trace}")
 
-                return ActionResult(
-                    False,
-                    action_type,
-                    f"Error after {attempt + 1} attempts: {str(e)}",
-                    error_details=traceback.format_exc(),
-                    retry_count=attempt,
-                    execution_time=time.time() - start_time,
-                )
+                # Rollback database on error
+                try:
+                    self.db.rollback()
+                    logger.info("🔄 Rolled back database session")
+                except Exception as rollback_error:
+                    logger.error(f"Failed to rollback: {rollback_error}")
 
-        # Should never reach here, but just in case
+                # If not retryable or last attempt, fail
+                if not is_retryable or attempt == max_attempts - 1:
+                    return ActionResult(
+                        success=False,
+                        action_type=action_type,
+                        message=f"Failed after {retry_count} retries: {error_msg}",
+                        retry_count=retry_count,
+                        execution_time=time.time() - start_time,
+                        error_details=error_trace,
+                    )
+
+                # Wait before retry
+                time.sleep(self.retry_delay * (attempt + 1))  # Exponential backoff
+                logger.info(f"↻ Retrying {action_type} (attempt {attempt + 2}/{max_attempts})")
+
+        # Should not reach here, but handle it
         return ActionResult(
-            False,
-            action_type,
-            f"Failed after {max_attempts} attempts: {last_error}",
-            retry_count=max_attempts - 1,
+            success=False,
+            action_type=action_type,
+            message=f"Failed: {last_error}",
+            retry_count=retry_count,
             execution_time=time.time() - start_time,
         )
 
@@ -267,35 +245,36 @@ class ActionExecutor:
 
         # Route to appropriate handler
         handlers = {
-            "create_note": self._create_note,
-            "update_note": self._update_note,
-            "archive_note": self._archive_note,
-            "delete_note": self._delete_note,
-            "add_task": self._add_task,
+            # Task actions
+            "create_task": self._create_task,
             "update_task": self._update_task,
-            "complete_task": self._complete_task,
             "delete_task": self._delete_task,
-            "create_project": self._create_project,
-            "update_project": self._update_project,
-            "delete_project": self._delete_project,
-            "search_projects": self._search_projects,
-            "update_memory": self._update_memory,
-            "list_memories": self._list_memories,
-            "get_memory": self._get_memory,
-            "delete_memory": self._delete_memory,
-            "add_vault_item": self._add_vault_item,
-            "execute_code": self._execute_code,
-            "list_notes": self._list_notes,
-            "search_notes": self._search_notes,
+            "get_task": self._get_task,
             "list_tasks": self._list_tasks,
             "search_tasks": self._search_tasks,
-            "list_projects": self._list_projects,
-            "vault_store": self._vault_store,
-            "vault_get": self._vault_get,
-            "vault_search": self._vault_search,
-            "vault_list": self._vault_list,
-            "vault_update": self._vault_update,
-            "vault_delete": self._vault_delete,
+            # Memory actions
+            "create_memory": self._create_memory,
+            "update_memory": self._update_memory,
+            "delete_memory": self._delete_memory,
+            "get_memory": self._get_memory,
+            "list_memories": self._list_memories,
+            "search_memories": self._search_memories,
+            # Goal actions
+            "create_goal": self._create_goal,
+            "update_goal": self._update_goal,
+            "delete_goal": self._delete_goal,
+            "get_goal": self._get_goal,
+            "list_goals": self._list_goals,
+            "search_goals": self._search_goals,
+            # Datavault actions
+            "datavault_store": self._datavault_store,
+            "datavault_get": self._datavault_get,
+            "datavault_update": self._datavault_update,
+            "datavault_delete": self._datavault_delete,
+            "datavault_list": self._datavault_list,
+            "datavault_search": self._datavault_search,
+            # Code execution
+            "execute_code": self._execute_code,
         }
 
         handler = handlers.get(action_type)
@@ -304,21 +283,7 @@ class ActionExecutor:
             return ActionResult(False, action_type, f"Unknown action type: {action_type}")
 
         # Execute with retry logic
-        result = self._execute_with_retry(action_type, handler, action)
-
-        # Log final result
-        if result.success:
-            logger.info(
-                f"✓ ACTION SUCCESS ({result.execution_time:.3f}s, "
-                f"{result.retry_count} retries): {result.message}"
-            )
-        else:
-            logger.error(
-                f"✗ ACTION FAILED ({result.execution_time:.3f}s, "
-                f"{result.retry_count} retries): {result.message}"
-            )
-
-        return result
+        return self._execute_with_retry(action_type, handler, action)
 
     def execute_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
         """Execute multiple actions.
@@ -349,954 +314,550 @@ class ActionExecutor:
 
         return results
 
-    # Note actions
-    def _create_note(self, action: Dict[str, Any]) -> ActionResult:
-        """Create a note."""
-        title = action.get("title")
-        if not title:
-            return ActionResult(False, "create_note", "Missing title")
+    # =========================================================================
+    # TASK ACTION HANDLERS
+    # =========================================================================
 
-        content = action.get("content", "")
-        tags = action.get("tags", [])
-        pinned = action.get("pinned", False)
+    def _create_task(self, action: Dict[str, Any]) -> ActionResult:
+        """Create a task."""
+        content = action.get("content")
+        notes = action.get("notes", "")
+        status = action.get("status", "pending")
 
-        note = self.note_service.create_note(title, content, tags, pinned)
+        try:
+            status_enum = TaskStatus(status)
+        except ValueError:
+            return ActionResult(False, "create_task", f"Invalid status: {status}")
+
+        task = self.task_service.create_task(content, notes, status_enum)
         return ActionResult(
             True,
-            "create_note",
-            f"Created note: {note.title}",
-            {"note_id": note.id, "title": note.title},
-        )
-
-    def _update_note(self, action: Dict[str, Any]) -> ActionResult:
-        """Update a note."""
-        note_id = action.get("note_id")
-        if not note_id:
-            return ActionResult(False, "update_note", "Missing note_id")
-
-        update_fields = {}
-        for field in ["title", "content", "tags"]:
-            if field in action:
-                update_fields[field] = action[field]
-
-        if not update_fields:
-            return ActionResult(False, "update_note", "No fields to update")
-
-        note = self.note_service.update_note(note_id, **update_fields)
-        if not note:
-            return ActionResult(False, "update_note", f"Note {note_id} not found")
-
-        return ActionResult(True, "update_note", f"Updated note: {note.title}")
-
-    def _archive_note(self, action: Dict[str, Any]) -> ActionResult:
-        """Archive a note."""
-        note_id = action.get("note_id")
-        if not note_id:
-            return ActionResult(False, "archive_note", "Missing note_id")
-
-        note = self.note_service.archive_note(note_id)
-        if not note:
-            return ActionResult(False, "archive_note", f"Note {note_id} not found")
-
-        return ActionResult(True, "archive_note", f"Archived note: {note.title}")
-
-    def _delete_note(self, action: Dict[str, Any]) -> ActionResult:
-        """Delete a note."""
-        note_id = action.get("note_id")
-        if not note_id:
-            return ActionResult(False, "delete_note", "Missing note_id")
-
-        success = self.note_service.delete_note(note_id)
-        if not success:
-            return ActionResult(False, "delete_note", f"Note {note_id} not found")
-
-        return ActionResult(True, "delete_note", f"Deleted note {note_id}")
-
-    # Task actions
-    def _add_task(self, action: Dict[str, Any]) -> ActionResult:
-        """Add a task."""
-        title = action.get("title")
-        if not title:
-            return ActionResult(False, "add_task", "Missing title")
-
-        due_date = None
-        if "due_date" in action:
-            due_date_str = action["due_date"]
-            try:
-                due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-            except ValueError:
-                return ActionResult(False, "add_task", f"Invalid due_date format: {due_date_str}")
-
-        project_name = action.get("project_name")
-        note_title = action.get("note_title")
-
-        # Resolve note_id from note_title if provided
-        note_id = None
-        if note_title:
-            notes = self.note_service.search_notes(note_title)
-            if notes:
-                note_id = notes[0].id
-
-        task = self.task_service.create_task(
-            title=title,
-            due_date=due_date,
-            note_id=note_id,
-            project_name=project_name,
-        )
-
-        return ActionResult(
-            True,
-            "add_task",
-            f"Created task: {task.title}",
-            {"task_id": task.id, "title": task.title},
+            "create_task",
+            f"Created task {task.id}",
+            {
+                "task_id": task.id,
+                "content": task.content,
+                "status": task.status.value,
+            },
         )
 
     def _update_task(self, action: Dict[str, Any]) -> ActionResult:
         """Update a task."""
         task_id = action.get("task_id")
-        if not task_id:
-            return ActionResult(False, "update_task", "Missing task_id")
+        kwargs = {}
 
-        update_fields = {}
-        for field in ["title", "status", "due_date"]:
-            if field in action:
-                value = action[field]
-                if field == "status":
-                    try:
-                        value = TaskStatus(value)
-                    except ValueError:
-                        return ActionResult(
-                            False, "update_task", f"Invalid status: {value}"
-                        )
-                elif field == "due_date" and value:
-                    try:
-                        value = datetime.strptime(value, "%Y-%m-%d")
-                    except ValueError:
-                        return ActionResult(
-                            False, "update_task", f"Invalid due_date format: {value}"
-                        )
-                update_fields[field] = value
+        if "content" in action:
+            kwargs["content"] = action["content"]
+        if "notes" in action:
+            kwargs["notes"] = action["notes"]
+        if "status" in action:
+            try:
+                kwargs["status"] = TaskStatus(action["status"])
+            except ValueError:
+                return ActionResult(False, "update_task", f"Invalid status: {action['status']}")
 
-        if not update_fields:
-            return ActionResult(False, "update_task", "No fields to update")
-
-        task = self.task_service.update_task(task_id, **update_fields)
+        task = self.task_service.update_task(task_id, **kwargs)
         if not task:
             return ActionResult(False, "update_task", f"Task {task_id} not found")
 
-        return ActionResult(True, "update_task", f"Updated task: {task.title}")
-
-    def _complete_task(self, action: Dict[str, Any]) -> ActionResult:
-        """Complete a task."""
-        task_id = action.get("task_id")
-        if not task_id:
-            return ActionResult(False, "complete_task", "Missing task_id")
-
-        task = self.task_service.complete_task(task_id)
-        if not task:
-            return ActionResult(False, "complete_task", f"Task {task_id} not found")
-
-        return ActionResult(True, "complete_task", f"Completed task: {task.title}")
+        return ActionResult(
+            True,
+            "update_task",
+            f"Updated task {task.id}",
+            {
+                "task_id": task.id,
+                "content": task.content,
+                "status": task.status.value,
+            },
+        )
 
     def _delete_task(self, action: Dict[str, Any]) -> ActionResult:
         """Delete a task."""
         task_id = action.get("task_id")
-        if not task_id:
-            return ActionResult(False, "delete_task", "Missing task_id")
-
         success = self.task_service.delete_task(task_id)
-        if not success:
-            return ActionResult(False, "delete_task", f"Task {task_id} not found")
 
-        return ActionResult(True, "delete_task", f"Deleted task {task_id}")
+        if success:
+            return ActionResult(True, "delete_task", f"Deleted task {task_id}")
+        return ActionResult(False, "delete_task", f"Task {task_id} not found")
 
-    # Project actions
-    def _create_project(self, action: Dict[str, Any]) -> ActionResult:
-        """Create a project."""
-        name = action.get("name")
-        if not name:
-            return ActionResult(False, "create_project", "Missing name")
+    def _get_task(self, action: Dict[str, Any]) -> ActionResult:
+        """Get a task by ID."""
+        task_id = action.get("task_id")
+        task = self.task_service.get_task(task_id)
 
-        description = action.get("description", "")
-        tags = action.get("tags", [])
-
-        project = self.project_service.create_project(name, description, tags=tags)
-        return ActionResult(
-            True,
-            "create_project",
-            f"Created project: {project.name}",
-            {"project_id": project.id, "name": project.name},
-        )
-
-    def _update_project(self, action: Dict[str, Any]) -> ActionResult:
-        """Update a project.
-
-        Args:
-            action: Action with 'project_id' or 'name', and update fields
-
-        Returns:
-            ActionResult with updated project info
-        """
-        project_id = action.get("project_id")
-        project_name = action.get("name")
-
-        # Find project by ID or name
-        if project_id:
-            project = self.project_service.get_project(project_id)
-        elif project_name:
-            project = self.project_service.get_project_by_name(project_name)
-        else:
-            return ActionResult(
-                False,
-                "update_project",
-                "Missing required field: project_id or name",
-            )
-
-        if not project:
-            return ActionResult(
-                False,
-                "update_project",
-                f"Project not found",
-            )
-
-        # Extract update fields
-        update_fields = {}
-        if "new_name" in action:
-            update_fields["name"] = action["new_name"]
-        if "description" in action:
-            update_fields["description"] = action["description"]
-        if "status" in action:
-            from ..core.models import ProjectStatus
-            try:
-                update_fields["status"] = ProjectStatus(action["status"])
-            except ValueError:
-                return ActionResult(
-                    False,
-                    "update_project",
-                    f"Invalid status: {action['status']}",
-                )
-        if "tags" in action:
-            update_fields["tags"] = ",".join(action["tags"]) if isinstance(action["tags"], list) else action["tags"]
-
-        if not update_fields:
-            return ActionResult(
-                False,
-                "update_project",
-                "No fields to update",
-            )
-
-        updated = self.project_service.update_project(project.id, **update_fields)
+        if not task:
+            return ActionResult(False, "get_task", f"Task {task_id} not found")
 
         return ActionResult(
             True,
-            "update_project",
-            f"Updated project: {updated.name}",
-            {"project_id": updated.id, "name": updated.name},
+            "get_task",
+            f"Retrieved task {task_id}",
+            {
+                "task_id": task.id,
+                "content": task.content,
+                "notes": task.notes,
+                "status": task.status.value,
+            },
         )
 
-    def _delete_project(self, action: Dict[str, Any]) -> ActionResult:
-        """Delete a project.
+    def _list_tasks(self, action: Dict[str, Any]) -> ActionResult:
+        """List all tasks."""
+        status_filter = action.get("status")
+        limit = action.get("limit", 50)
 
-        Args:
-            action: Action with 'project_id' or 'name'
+        try:
+            status_enum = TaskStatus(status_filter) if status_filter else None
+        except ValueError:
+            return ActionResult(False, "list_tasks", f"Invalid status: {status_filter}")
 
-        Returns:
-            ActionResult indicating success
-        """
-        project_id = action.get("project_id")
-        project_name = action.get("name")
-
-        # Find project by ID or name
-        if project_id:
-            project = self.project_service.get_project(project_id)
-        elif project_name:
-            project = self.project_service.get_project_by_name(project_name)
-        else:
-            return ActionResult(
-                False,
-                "delete_project",
-                "Missing required field: project_id or name",
-            )
-
-        if not project:
-            return ActionResult(
-                False,
-                "delete_project",
-                f"Project not found",
-            )
-
-        success = self.project_service.delete_project(project.id)
-
-        if not success:
-            return ActionResult(
-                False,
-                "delete_project",
-                f"Failed to delete project {project.name}",
-            )
-
+        tasks = self.task_service.get_all_tasks(status_enum)[:limit]
         return ActionResult(
             True,
-            "delete_project",
-            f"Deleted project: {project.name}",
-            {"project_id": project.id, "name": project.name},
+            "list_tasks",
+            f"Found {len(tasks)} tasks",
+            {
+                "tasks": [
+                    {
+                        "id": t.id,
+                        "content": t.content,
+                        "status": t.status.value,
+                    }
+                    for t in tasks
+                ]
+            },
         )
 
-    def _search_projects(self, action: Dict[str, Any]) -> ActionResult:
-        """Search projects by name or description.
-
-        Args:
-            action: Action with 'query' field
-
-        Returns:
-            ActionResult with matching projects
-        """
-        query = action.get("query", "")
+    def _search_tasks(self, action: Dict[str, Any]) -> ActionResult:
+        """Search tasks."""
+        query = action.get("query")
         limit = action.get("limit", 20)
 
-        # Get all projects and filter by query
-        all_projects = self.project_service.get_all_projects()
-
-        # Simple search in name and description
-        matching_projects = [
-            p for p in all_projects
-            if query.lower() in p.name.lower() or query.lower() in (p.description or "").lower()
-        ][:limit]
-
-        projects_data = [
-            {
-                "project_id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "status": p.status.value,
-                "tags": p.tags,
-            }
-            for p in matching_projects
-        ]
-
+        tasks = self.task_service.search_tasks(query)[:limit]
         return ActionResult(
             True,
-            "search_projects",
-            f"Found {len(projects_data)} projects matching '{query}'",
-            {"projects": projects_data, "count": len(projects_data), "query": query},
+            "search_tasks",
+            f"Found {len(tasks)} matching tasks",
+            {
+                "tasks": [
+                    {
+                        "id": t.id,
+                        "content": t.content,
+                        "notes": t.notes,
+                        "status": t.status.value,
+                    }
+                    for t in tasks
+                ]
+            },
         )
 
-    # Memory actions
-    def _update_memory(self, action: Dict[str, Any]) -> ActionResult:
-        """Update memory."""
-        key = action.get("key")
+    # =========================================================================
+    # MEMORY ACTION HANDLERS
+    # =========================================================================
+
+    def _create_memory(self, action: Dict[str, Any]) -> ActionResult:
+        """Create a memory."""
         content = action.get("content")
+        notes = action.get("notes", "")
 
-        if not key or not content:
-            return ActionResult(False, "update_memory", "Missing key or content")
+        memory = self.memory_service.create_memory(content, notes)
+        return ActionResult(
+            True,
+            "create_memory",
+            f"Created memory {memory.id}",
+            {
+                "memory_id": memory.id,
+                "content": memory.content,
+            },
+        )
 
-        importance = action.get("importance", 3)
-        memory = self.memory_service.update_memory(key, content, importance)
+    def _update_memory(self, action: Dict[str, Any]) -> ActionResult:
+        """Update a memory."""
+        memory_id = action.get("memory_id")
+        kwargs = {}
+
+        if "content" in action:
+            kwargs["content"] = action["content"]
+        if "notes" in action:
+            kwargs["notes"] = action["notes"]
+
+        memory = self.memory_service.update_memory(memory_id, **kwargs)
+        if not memory:
+            return ActionResult(False, "update_memory", f"Memory {memory_id} not found")
 
         return ActionResult(
             True,
             "update_memory",
-            f"Updated memory: {memory.key}",
-            {"key": memory.key},
-        )
-
-    def _list_memories(self, action: Dict[str, Any]) -> ActionResult:
-        """List all memories.
-
-        Args:
-            action: Action with optional 'importance_threshold' field
-
-        Returns:
-            ActionResult with list of memories
-        """
-        importance_threshold = action.get("importance_threshold", 1)
-        memories = self.memory_service.get_all_memories(min_importance=importance_threshold)
-
-        memories_data = [
+            f"Updated memory {memory.id}",
             {
-                "key": m.key,
-                "content": m.content[:200] + "..." if len(m.content) > 200 else m.content,
-                "importance": m.importance,
-                "updated_at": m.updated_at.isoformat(),
-            }
-            for m in memories
-        ]
-
-        return ActionResult(
-            True,
-            "list_memories",
-            f"Listed {len(memories_data)} memories (importance >= {importance_threshold})",
-            {"memories": memories_data, "count": len(memories_data)},
-        )
-
-    def _get_memory(self, action: Dict[str, Any]) -> ActionResult:
-        """Get memory by key.
-
-        Args:
-            action: Action with 'key' field
-
-        Returns:
-            ActionResult with memory data
-        """
-        key = action.get("key")
-        if not key:
-            return ActionResult(
-                False,
-                "get_memory",
-                "Missing required field: key",
-            )
-
-        memory = self.memory_service.get_memory(key)
-
-        if not memory:
-            return ActionResult(
-                False,
-                "get_memory",
-                f"Memory with key '{key}' not found",
-            )
-
-        return ActionResult(
-            True,
-            "get_memory",
-            f"Retrieved memory: {memory.key}",
-            {
-                "key": memory.key,
+                "memory_id": memory.id,
                 "content": memory.content,
-                "importance": memory.importance,
-                "updated_at": memory.updated_at.isoformat(),
             },
         )
 
     def _delete_memory(self, action: Dict[str, Any]) -> ActionResult:
-        """Delete memory by key.
+        """Delete a memory."""
+        memory_id = action.get("memory_id")
+        success = self.memory_service.delete_memory(memory_id)
 
-        Args:
-            action: Action with 'key' field
+        if success:
+            return ActionResult(True, "delete_memory", f"Deleted memory {memory_id}")
+        return ActionResult(False, "delete_memory", f"Memory {memory_id} not found")
 
-        Returns:
-            ActionResult indicating success
-        """
-        key = action.get("key")
-        if not key:
-            return ActionResult(
-                False,
-                "delete_memory",
-                "Missing required field: key",
-            )
+    def _get_memory(self, action: Dict[str, Any]) -> ActionResult:
+        """Get a memory by ID."""
+        memory_id = action.get("memory_id")
+        memory = self.memory_service.get_memory(memory_id)
 
-        success = self.memory_service.delete_memory(key)
-
-        if not success:
-            return ActionResult(
-                False,
-                "delete_memory",
-                f"Memory with key '{key}' not found",
-            )
+        if not memory:
+            return ActionResult(False, "get_memory", f"Memory {memory_id} not found")
 
         return ActionResult(
             True,
-            "delete_memory",
-            f"Deleted memory: {key}",
-            {"key": key},
+            "get_memory",
+            f"Retrieved memory {memory_id}",
+            {
+                "memory_id": memory.id,
+                "content": memory.content,
+                "notes": memory.notes,
+            },
         )
 
-    # Vault actions
-    def _add_vault_item(self, action: Dict[str, Any]) -> ActionResult:
-        """Add vault item."""
-        title = action.get("title")
-        item_type = action.get("type", "other")
-        path_or_url = action.get("path_or_url")
+    def _list_memories(self, action: Dict[str, Any]) -> ActionResult:
+        """List all memories."""
+        limit = action.get("limit", 50)
 
-        if not title or not path_or_url:
-            return ActionResult(False, "add_vault_item", "Missing title or path_or_url")
+        memories = self.memory_service.get_all_memories()[:limit]
+        return ActionResult(
+            True,
+            "list_memories",
+            f"Found {len(memories)} memories",
+            {
+                "memories": [
+                    {
+                        "id": m.id,
+                        "content": m.content,
+                    }
+                    for m in memories
+                ]
+            },
+        )
+
+    def _search_memories(self, action: Dict[str, Any]) -> ActionResult:
+        """Search memories."""
+        query = action.get("query")
+        limit = action.get("limit", 20)
+
+        memories = self.memory_service.search_memories(query)[:limit]
+        return ActionResult(
+            True,
+            "search_memories",
+            f"Found {len(memories)} matching memories",
+            {
+                "memories": [
+                    {
+                        "id": m.id,
+                        "content": m.content,
+                        "notes": m.notes,
+                    }
+                    for m in memories
+                ]
+            },
+        )
+
+    # =========================================================================
+    # GOAL ACTION HANDLERS
+    # =========================================================================
+
+    def _create_goal(self, action: Dict[str, Any]) -> ActionResult:
+        """Create a goal."""
+        content = action.get("content")
+        notes = action.get("notes", "")
+        status = action.get("status", "pending")
 
         try:
-            vault_type = VaultItemType(item_type)
+            status_enum = GoalStatus(status)
         except ValueError:
-            vault_type = VaultItemType.OTHER
+            return ActionResult(False, "create_goal", f"Invalid status: {status}")
 
-        item = self.vault_service.add_item(title, vault_type, path_or_url)
+        goal = self.goal_service.create_goal(content, notes, status_enum)
         return ActionResult(
             True,
-            "add_vault_item",
-            f"Added vault item: {item.title}",
-            {"item_id": item.id, "title": item.title},
+            "create_goal",
+            f"Created goal {goal.id}",
+            {
+                "goal_id": goal.id,
+                "content": goal.content,
+                "status": goal.status.value,
+            },
         )
 
-    # Code execution action
+    def _update_goal(self, action: Dict[str, Any]) -> ActionResult:
+        """Update a goal."""
+        goal_id = action.get("goal_id")
+        kwargs = {}
+
+        if "content" in action:
+            kwargs["content"] = action["content"]
+        if "notes" in action:
+            kwargs["notes"] = action["notes"]
+        if "status" in action:
+            try:
+                kwargs["status"] = GoalStatus(action["status"])
+            except ValueError:
+                return ActionResult(False, "update_goal", f"Invalid status: {action['status']}")
+
+        goal = self.goal_service.update_goal(goal_id, **kwargs)
+        if not goal:
+            return ActionResult(False, "update_goal", f"Goal {goal_id} not found")
+
+        return ActionResult(
+            True,
+            "update_goal",
+            f"Updated goal {goal.id}",
+            {
+                "goal_id": goal.id,
+                "content": goal.content,
+                "status": goal.status.value,
+            },
+        )
+
+    def _delete_goal(self, action: Dict[str, Any]) -> ActionResult:
+        """Delete a goal."""
+        goal_id = action.get("goal_id")
+        success = self.goal_service.delete_goal(goal_id)
+
+        if success:
+            return ActionResult(True, "delete_goal", f"Deleted goal {goal_id}")
+        return ActionResult(False, "delete_goal", f"Goal {goal_id} not found")
+
+    def _get_goal(self, action: Dict[str, Any]) -> ActionResult:
+        """Get a goal by ID."""
+        goal_id = action.get("goal_id")
+        goal = self.goal_service.get_goal(goal_id)
+
+        if not goal:
+            return ActionResult(False, "get_goal", f"Goal {goal_id} not found")
+
+        return ActionResult(
+            True,
+            "get_goal",
+            f"Retrieved goal {goal_id}",
+            {
+                "goal_id": goal.id,
+                "content": goal.content,
+                "notes": goal.notes,
+                "status": goal.status.value,
+            },
+        )
+
+    def _list_goals(self, action: Dict[str, Any]) -> ActionResult:
+        """List all goals."""
+        status_filter = action.get("status")
+        limit = action.get("limit", 50)
+
+        try:
+            status_enum = GoalStatus(status_filter) if status_filter else None
+        except ValueError:
+            return ActionResult(False, "list_goals", f"Invalid status: {status_filter}")
+
+        goals = self.goal_service.get_all_goals(status_enum)[:limit]
+        return ActionResult(
+            True,
+            "list_goals",
+            f"Found {len(goals)} goals",
+            {
+                "goals": [
+                    {
+                        "id": g.id,
+                        "content": g.content,
+                        "status": g.status.value,
+                    }
+                    for g in goals
+                ]
+            },
+        )
+
+    def _search_goals(self, action: Dict[str, Any]) -> ActionResult:
+        """Search goals."""
+        query = action.get("query")
+        limit = action.get("limit", 20)
+
+        goals = self.goal_service.search_goals(query)[:limit]
+        return ActionResult(
+            True,
+            "search_goals",
+            f"Found {len(goals)} matching goals",
+            {
+                "goals": [
+                    {
+                        "id": g.id,
+                        "content": g.content,
+                        "notes": g.notes,
+                        "status": g.status.value,
+                    }
+                    for g in goals
+                ]
+            },
+        )
+
+    # =========================================================================
+    # DATAVAULT ACTION HANDLERS
+    # =========================================================================
+
+    def _datavault_store(self, action: Dict[str, Any]) -> ActionResult:
+        """Store content in datavault."""
+        content = action.get("content")
+        filetype = action.get("filetype", "text")
+        notes = action.get("notes", "")
+
+        item = self.datavault_service.store_item(content, filetype, notes)
+        return ActionResult(
+            True,
+            "datavault_store",
+            f"Stored datavault item {item.id}",
+            {
+                "item_id": item.id,
+                "filetype": item.filetype,
+                "content_length": len(content),
+            },
+        )
+
+    def _datavault_get(self, action: Dict[str, Any]) -> ActionResult:
+        """Get datavault item."""
+        item_id = action.get("item_id")
+        item = self.datavault_service.get_item(item_id)
+
+        if not item:
+            return ActionResult(False, "datavault_get", f"Datavault item {item_id} not found")
+
+        return ActionResult(
+            True,
+            "datavault_get",
+            f"Retrieved datavault item {item_id}",
+            {
+                "item_id": item.id,
+                "content": item.content,
+                "filetype": item.filetype,
+                "notes": item.notes,
+            },
+        )
+
+    def _datavault_update(self, action: Dict[str, Any]) -> ActionResult:
+        """Update datavault item."""
+        item_id = action.get("item_id")
+        kwargs = {}
+
+        if "content" in action:
+            kwargs["content"] = action["content"]
+        if "filetype" in action:
+            kwargs["filetype"] = action["filetype"]
+        if "notes" in action:
+            kwargs["notes"] = action["notes"]
+
+        item = self.datavault_service.update_item(item_id, **kwargs)
+        if not item:
+            return ActionResult(False, "datavault_update", f"Datavault item {item_id} not found")
+
+        return ActionResult(
+            True,
+            "datavault_update",
+            f"Updated datavault item {item.id}",
+            {
+                "item_id": item.id,
+                "filetype": item.filetype,
+            },
+        )
+
+    def _datavault_delete(self, action: Dict[str, Any]) -> ActionResult:
+        """Delete datavault item."""
+        item_id = action.get("item_id")
+        success = self.datavault_service.delete_item(item_id)
+
+        if success:
+            return ActionResult(True, "datavault_delete", f"Deleted datavault item {item_id}")
+        return ActionResult(False, "datavault_delete", f"Datavault item {item_id} not found")
+
+    def _datavault_list(self, action: Dict[str, Any]) -> ActionResult:
+        """List datavault items."""
+        filetype_filter = action.get("filetype")
+        limit = action.get("limit", 50)
+
+        items = self.datavault_service.get_all_items(filetype_filter)[:limit]
+        return ActionResult(
+            True,
+            "datavault_list",
+            f"Found {len(items)} datavault items",
+            {
+                "items": [
+                    {
+                        "id": i.id,
+                        "filetype": i.filetype,
+                        "notes": i.notes,
+                        "content_length": len(i.content),
+                    }
+                    for i in items
+                ]
+            },
+        )
+
+    def _datavault_search(self, action: Dict[str, Any]) -> ActionResult:
+        """Search datavault items."""
+        query = action.get("query")
+        limit = action.get("limit", 20)
+
+        items = self.datavault_service.search_items(query)[:limit]
+        return ActionResult(
+            True,
+            "datavault_search",
+            f"Found {len(items)} matching datavault items",
+            {
+                "items": [
+                    {
+                        "id": i.id,
+                        "filetype": i.filetype,
+                        "notes": i.notes,
+                        "content_preview": i.content[:200] if len(i.content) > 200 else i.content,
+                    }
+                    for i in items
+                ]
+            },
+        )
+
+    # =========================================================================
+    # CODE EXECUTION
+    # =========================================================================
+
     def _execute_code(self, action: Dict[str, Any]) -> ActionResult:
-        """Execute Python code.
-
-        Args:
-            action: Action with 'code' field
-
-        Returns:
-            ActionResult with execution output
-        """
+        """Execute Python code."""
         if not self.enable_code_execution:
-            return ActionResult(
-                False,
-                "execute_code",
-                "Code execution is disabled in settings",
-            )
+            return ActionResult(False, "execute_code", "Code execution is disabled")
 
         code = action.get("code")
-        if not code:
-            return ActionResult(False, "execute_code", "Missing code field")
 
-        # Execute the code
-        result = self.code_executor.execute(code)
-
-        if result["success"]:
-            output_parts = []
-            if result["stdout"]:
-                output_parts.append(f"Output: {result['stdout']}")
-            if result["result"] is not None:
-                output_parts.append(f"Result: {result['result']}")
-
-            exec_time = result.get("execution_time", 0)
-            message = (
-                f"Code executed in {exec_time:.3f}s. "
-                + ("\n".join(output_parts) if output_parts else "No output")
-            )
+        # Execute code with GemBrain API
+        try:
+            success, stdout, stderr, result, error, exec_time = self.code_executor.execute(code)
 
             return ActionResult(
-                True,
+                success,
                 "execute_code",
-                message,
+                "Code executed successfully" if success else "Code execution failed",
                 {
-                    "execution_id": result.get("execution_id"),
-                    "stdout": result["stdout"],
-                    "stderr": result["stderr"],
-                    "result": str(result["result"]) if result["result"] is not None else None,
+                    "success": success,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "result": result,
+                    "error": error,
                     "execution_time": exec_time,
                 },
             )
-        else:
+        except Exception as e:
             return ActionResult(
                 False,
                 "execute_code",
-                f"Execution failed: {result['error']}",
+                f"Code execution error: {e}",
                 {
-                    "execution_id": result.get("execution_id"),
-                    "error": result["error"],
-                    "stderr": result["stderr"],
-                    "execution_time": result.get("execution_time", 0),
+                    "success": False,
+                    "error": str(e),
                 },
             )
-
-    # Query/List actions for retrieving IDs and data
-    def _list_notes(self, action: Dict[str, Any]) -> ActionResult:
-        """List all notes with their IDs.
-
-        Returns:
-            ActionResult with list of notes
-        """
-        limit = action.get("limit", 50)
-        include_archived = action.get("include_archived", False)
-
-        notes = self.note_service.get_all_notes()
-
-        if not include_archived:
-            notes = [n for n in notes if not n.archived]
-
-        notes = notes[:limit]
-
-        notes_data = [
-            {
-                "id": note.id,
-                "title": note.title,
-                "tags": note.tags,
-                "pinned": note.pinned,
-                "archived": note.archived,
-                "created_at": note.created_at.isoformat(),
-                "updated_at": note.updated_at.isoformat(),
-            }
-            for note in notes
-        ]
-
-        return ActionResult(
-            True,
-            "list_notes",
-            f"Retrieved {len(notes_data)} notes",
-            {"notes": notes_data, "count": len(notes_data)},
-        )
-
-    def _search_notes(self, action: Dict[str, Any]) -> ActionResult:
-        """Search notes by query.
-
-        Args:
-            action: Action with 'query' field
-
-        Returns:
-            ActionResult with matching notes
-        """
-        query = action.get("query", "")
-        limit = action.get("limit", 20)
-
-        notes = self.note_service.search_notes(query)[:limit]
-
-        notes_data = [
-            {
-                "id": note.id,
-                "title": note.title,
-                "content": note.content[:200] + "..." if len(note.content) > 200 else note.content,
-                "tags": note.tags,
-                "pinned": note.pinned,
-                "archived": note.archived,
-                "created_at": note.created_at.isoformat(),
-                "updated_at": note.updated_at.isoformat(),
-            }
-            for note in notes
-        ]
-
-        return ActionResult(
-            True,
-            "search_notes",
-            f"Found {len(notes_data)} notes matching '{query}'",
-            {"notes": notes_data, "count": len(notes_data), "query": query},
-        )
-
-    def _list_tasks(self, action: Dict[str, Any]) -> ActionResult:
-        """List all tasks with their IDs.
-
-        Returns:
-            ActionResult with list of tasks
-        """
-        limit = action.get("limit", 50)
-        status_filter = action.get("status")  # Optional: todo, doing, done, stale
-
-        tasks = self.task_service.get_all_tasks()
-
-        if status_filter:
-            try:
-                status_enum = TaskStatus(status_filter)
-                tasks = [t for t in tasks if t.status == status_enum]
-            except ValueError:
-                pass
-
-        tasks = tasks[:limit]
-
-        tasks_data = [
-            {
-                "id": task.id,
-                "title": task.title,
-                "status": task.status.value,
-                "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project.name if task.project else None,
-                "note_id": task.note_id,
-                "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
-            }
-            for task in tasks
-        ]
-
-        return ActionResult(
-            True,
-            "list_tasks",
-            f"Retrieved {len(tasks_data)} tasks",
-            {"tasks": tasks_data, "count": len(tasks_data)},
-        )
-
-    def _search_tasks(self, action: Dict[str, Any]) -> ActionResult:
-        """Search tasks by query.
-
-        Args:
-            action: Action with 'query' field
-
-        Returns:
-            ActionResult with matching tasks
-        """
-        query = action.get("query", "")
-        limit = action.get("limit", 20)
-
-        tasks = self.task_service.search_tasks(query)[:limit]
-
-        tasks_data = [
-            {
-                "id": task.id,
-                "title": task.title,
-                "status": task.status.value,
-                "due_date": task.due_date.isoformat() if task.due_date else None,
-                "project_name": task.project.name if task.project else None,
-                "note_id": task.note_id,
-                "created_at": task.created_at.isoformat(),
-                "updated_at": task.updated_at if hasattr(task, "updated_at") else task.created_at.isoformat(),
-            }
-            for task in tasks
-        ]
-
-        return ActionResult(
-            True,
-            "search_tasks",
-            f"Found {len(tasks_data)} tasks matching '{query}'",
-            {"tasks": tasks_data, "count": len(tasks_data), "query": query},
-        )
-
-    def _list_projects(self, action: Dict[str, Any]) -> ActionResult:
-        """List all projects with their IDs.
-
-        Returns:
-            ActionResult with list of projects
-        """
-        limit = action.get("limit", 50)
-
-        projects = self.project_service.get_all_projects()[:limit]
-
-        projects_data = [
-            {
-                "id": project.id,
-                "name": project.name,
-                "description": project.description,
-                "tags": project.tags,
-                "task_count": len(project.tasks) if hasattr(project, "tasks") else 0,
-                "created_at": project.created_at.isoformat(),
-                "updated_at": project.updated_at.isoformat(),
-            }
-            for project in projects
-        ]
-
-        return ActionResult(
-            True,
-            "list_projects",
-            f"Retrieved {len(projects_data)} projects",
-            {"projects": projects_data, "count": len(projects_data)},
-        )
-
-    # Vault actions for intermediate storage
-    def _vault_store(self, action: Dict[str, Any]) -> ActionResult:
-        """Store data in vault (intermediate results).
-
-        Args:
-            action: Action with 'title' and 'content' fields
-
-        Returns:
-            ActionResult with vault item info
-        """
-        title = action.get("title", "")
-        content = action.get("content", "")
-        item_type = action.get("type", "snippet")
-
-        try:
-            vault_type = VaultItemType(item_type)
-        except ValueError:
-            vault_type = VaultItemType.SNIPPET
-
-        # Store content in metadata, not path_or_url (matches code_api.vault_store pattern)
-        path_or_url = ""  # Empty for snippets
-        metadata = {"content": content}
-
-        item = self.vault_service.add_item(title, vault_type, path_or_url, metadata)
-
-        return ActionResult(
-            True,
-            "vault_store",
-            f"Stored vault item: {item.title}",
-            {
-                "item_id": item.id,
-                "title": item.title,
-                "type": item.type.value,
-            },
-        )
-
-    def _vault_get(self, action: Dict[str, Any]) -> ActionResult:
-        """Retrieve vault item by ID.
-
-        Args:
-            action: Action with 'item_id' field
-
-        Returns:
-            ActionResult with vault item data
-        """
-        import json
-
-        item_id = action.get("item_id")
-
-        item = self.vault_service.get_item(item_id)
-
-        if not item:
-            return ActionResult(
-                False,
-                "vault_get",
-                f"Vault item {item_id} not found",
-            )
-
-        # Parse metadata to extract content (matches code_api.vault_get pattern)
-        try:
-            metadata = json.loads(item.item_metadata) if item.item_metadata else {}
-        except json.JSONDecodeError:
-            metadata = {}
-
-        return ActionResult(
-            True,
-            "vault_get",
-            f"Retrieved vault item: {item.title}",
-            {
-                "item_id": item.id,
-                "title": item.title,
-                "type": item.type.value,
-                "content": metadata.get("content", item.path_or_url),  # Fallback to path_or_url for legacy items
-                "path_or_url": item.path_or_url,
-            },
-        )
-
-    def _vault_search(self, action: Dict[str, Any]) -> ActionResult:
-        """Search vault items.
-
-        Args:
-            action: Action with 'query' field
-
-        Returns:
-            ActionResult with matching vault items
-        """
-        query = action.get("query", "")
-        limit = action.get("limit", 20)
-
-        items = self.vault_service.search_items(query)[:limit]
-
-        items_data = [
-            {
-                "item_id": item.id,
-                "title": item.title,
-                "type": item.type.value,
-                "path_or_url": item.path_or_url[:100] + "..." if len(item.path_or_url) > 100 else item.path_or_url,
-                "created_at": item.created_at.isoformat(),
-            }
-            for item in items
-        ]
-
-        return ActionResult(
-            True,
-            "vault_search",
-            f"Found {len(items_data)} vault items matching '{query}'",
-            {"items": items_data, "count": len(items_data), "query": query},
-        )
-
-    def _vault_list(self, action: Dict[str, Any]) -> ActionResult:
-        """List all vault items.
-
-        Args:
-            action: Action with optional 'item_type' and 'limit' fields
-
-        Returns:
-            ActionResult with list of vault items
-        """
-        item_type = action.get("item_type")
-        limit = action.get("limit", 50)
-
-        # Convert string type to enum if provided
-        vault_type = None
-        if item_type:
-            try:
-                vault_type = VaultItemType(item_type)
-            except ValueError:
-                return ActionResult(
-                    False,
-                    "vault_list",
-                    f"Invalid vault item type: {item_type}",
-                )
-
-        items = self.vault_service.get_all_items(vault_type)[:limit]
-
-        items_data = [
-            {
-                "item_id": item.id,
-                "title": item.title,
-                "type": item.type.value,
-                "path_or_url": item.path_or_url[:100] + "..." if len(item.path_or_url) > 100 else item.path_or_url,
-                "created_at": item.created_at.isoformat(),
-            }
-            for item in items
-        ]
-
-        return ActionResult(
-            True,
-            "vault_list",
-            f"Listed {len(items_data)} vault items" + (f" of type {item_type}" if item_type else ""),
-            {"items": items_data, "count": len(items_data)},
-        )
-
-    def _vault_update(self, action: Dict[str, Any]) -> ActionResult:
-        """Update vault item.
-
-        Args:
-            action: Action with 'item_id' and update fields
-
-        Returns:
-            ActionResult with updated item info
-        """
-        item_id = action.get("item_id")
-        if not item_id:
-            return ActionResult(
-                False,
-                "vault_update",
-                "Missing required field: item_id",
-            )
-
-        # Extract update fields
-        update_fields = {}
-        if "title" in action:
-            update_fields["title"] = action["title"]
-        if "path_or_url" in action:
-            update_fields["path_or_url"] = action["path_or_url"]
-        if "item_metadata" in action:
-            update_fields["item_metadata"] = action["item_metadata"]
-
-        if not update_fields:
-            return ActionResult(
-                False,
-                "vault_update",
-                "No fields to update",
-            )
-
-        item = self.vault_service.update_item(item_id, **update_fields)
-
-        if not item:
-            return ActionResult(
-                False,
-                "vault_update",
-                f"Vault item {item_id} not found",
-            )
-
-        return ActionResult(
-            True,
-            "vault_update",
-            f"Updated vault item: {item.title}",
-            {
-                "item_id": item.id,
-                "title": item.title,
-                "type": item.type.value,
-            },
-        )
-
-    def _vault_delete(self, action: Dict[str, Any]) -> ActionResult:
-        """Delete vault item.
-
-        Args:
-            action: Action with 'item_id' field
-
-        Returns:
-            ActionResult indicating success
-        """
-        item_id = action.get("item_id")
-        if not item_id:
-            return ActionResult(
-                False,
-                "vault_delete",
-                "Missing required field: item_id",
-            )
-
-        success = self.vault_service.delete_item(item_id)
-
-        if not success:
-            return ActionResult(
-                False,
-                "vault_delete",
-                f"Vault item {item_id} not found",
-            )
-
-        return ActionResult(
-            True,
-            "vault_delete",
-            f"Deleted vault item {item_id}",
-            {"item_id": item_id},
-        )
