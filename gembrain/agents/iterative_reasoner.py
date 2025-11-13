@@ -556,25 +556,75 @@ Insights Gained:
         return context
 
     def _parse_iteration_response(self, response: str) -> Optional[Dict[str, Any]]:
-        """Parse iteration response from model."""
+        """Parse iteration response from model using proper brace counting."""
         try:
-            # Extract ```iteration block
             logger.debug("🔍 Searching for ```iteration block in response")
-            match = re.search(r"```iteration\s*\n(.*?)\n```", response, re.DOTALL)
-            if match:
-                json_str = match.group(1)
-                logger.debug(f"✅ Found ```iteration block (length: {len(json_str)} chars)")
-                logger.debug(f"JSON string preview: {json_str[:200]}")
-                parsed = json.loads(json_str)
-                logger.debug(f"✅ Successfully parsed JSON with keys: {list(parsed.keys())}")
-                return parsed
-            else:
+
+            # Find start of iteration block
+            start_marker = "```iteration"
+            start_idx = response.find(start_marker)
+
+            if start_idx == -1:
                 logger.error("❌ No ```iteration block found in response")
                 logger.error(f"Response sample (first 1000 chars): {response[:1000]}")
                 return None
+
+            # Find the newline after the opening marker
+            json_start = response.find("\n", start_idx) + 1
+
+            # Find the closing marker by counting braces
+            # This properly handles nested code blocks with ``` inside JSON strings
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            json_end = json_start
+
+            for i in range(json_start, len(response)):
+                char = response[i]
+
+                # Handle escape sequences
+                if escape_next:
+                    escape_next = False
+                    continue
+
+                if char == '\\':
+                    escape_next = True
+                    continue
+
+                # Handle strings (ignore braces inside strings)
+                if char == '"':
+                    in_string = not in_string
+                    continue
+
+                # Only count braces outside strings
+                if not in_string:
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            json_end = i + 1
+                            break
+
+            if brace_count != 0:
+                logger.error(f"❌ Unbalanced braces in iteration JSON (count: {brace_count})")
+                logger.error(f"Response sample: {response[json_start:json_start+500]}")
+                return None
+
+            json_str = response[json_start:json_end]
+            logger.debug(f"✅ Found ```iteration block (length: {len(json_str)} chars)")
+            logger.debug(f"JSON string preview: {json_str[:200]}")
+
+            parsed = json.loads(json_str)
+            logger.debug(f"✅ Successfully parsed JSON with keys: {list(parsed.keys())}")
+            return parsed
+
         except json.JSONDecodeError as e:
             logger.error(f"❌ Failed to parse iteration JSON: {e}")
             logger.error(f"JSON string that failed: {json_str[:500] if 'json_str' in locals() else 'N/A'}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in _parse_iteration_response: {e}")
             return None
 
     def _parse_verification_response(self, response: str) -> Dict[str, Any]:

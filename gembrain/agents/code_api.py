@@ -270,7 +270,7 @@ class GemBrainAPI:
         Returns:
             List of memories
         """
-        memories = self.memory_service.get_important_memories(importance_threshold)
+        memories = self.memory_service.get_all_memories(min_importance=importance_threshold)
         return [
             {
                 "key": m.key,
