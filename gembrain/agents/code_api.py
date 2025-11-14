@@ -530,19 +530,25 @@ class GemBrainAPI:
             item_id: Datavault item ID
 
         Returns:
-            Datavault item dict with full content
+            Datavault item dict with full content, or error dict if not found
         """
         item = self.datavault_service.get_item(item_id)
         if item:
             return {
                 "id": item.id,
+                "datavault_id": item.id,  # Add for backwards compatibility
                 "content": item.content,
                 "filetype": item.filetype,
                 "notes": item.notes,
                 "created_at": item.created_at.isoformat(),
                 "updated_at": item.updated_at.isoformat(),
             }
-        return None
+        # Return error dict instead of None to prevent NoneType errors
+        return {
+            "error": f"Datavault item {item_id} not found",
+            "id": None,
+            "datavault_id": None,
+        }
 
     def datavault_list(self, filetype: Optional[str] = None, limit: int = 50):
         """List datavault items, optionally filtered by filetype.
@@ -597,7 +603,7 @@ class GemBrainAPI:
             notes: New notes
 
         Returns:
-            Updated item dict or None
+            Updated item dict or error dict if not found
         """
         kwargs = {}
         if content is not None:
@@ -612,11 +618,18 @@ class GemBrainAPI:
             logger.info(f"💾 Code updated datavault item: {item.id}")
             return {
                 "id": item.id,
+                "datavault_id": item.id,  # Add for backwards compatibility
                 "filetype": item.filetype,
                 "notes": item.notes,
                 "content_length": len(item.content),
+                "updated_at": item.updated_at.isoformat(),
             }
-        return None
+        # Return error dict instead of None
+        return {
+            "error": f"Datavault item {item_id} not found",
+            "id": None,
+            "datavault_id": None,
+        }
 
     def datavault_delete(self, item_id: int):
         """Delete a datavault item.
@@ -630,7 +643,11 @@ class GemBrainAPI:
         success = self.datavault_service.delete_item(item_id)
         if success:
             logger.info(f"🗑️ Code deleted datavault item: {item_id}")
-        return {"success": success, "item_id": item_id}
+        return {
+            "success": success,
+            "item_id": item_id,
+            "datavault_id": item_id,  # Add for backwards compatibility
+        }
 
     # =========================================================================
     # UTILITY METHODS

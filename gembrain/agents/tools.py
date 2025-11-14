@@ -71,6 +71,7 @@ class ActionExecutor:
         enable_code_execution: bool = True,
         max_retries: int = 3,
         retry_delay: float = 0.5,
+        progress_callback: Optional[Callable] = None,
     ):
         """Initialize action executor.
 
@@ -79,6 +80,7 @@ class ActionExecutor:
             enable_code_execution: Whether to allow code execution
             max_retries: Maximum number of retries for failed actions
             retry_delay: Delay between retries in seconds
+            progress_callback: Optional callback for progress updates (for UI)
         """
         self.db = db
         self.task_service = TaskService(db)
@@ -86,6 +88,7 @@ class ActionExecutor:
         self.goal_service = GoalService(db)
         self.datavault_service = DatavaultService(db)
         self.enable_code_execution = enable_code_execution
+        self.progress_callback = progress_callback
 
         # Create GemBrain API for code execution
         if enable_code_execution:
@@ -237,11 +240,31 @@ class ActionExecutor:
         logger.info(f"EXECUTING ACTION: {action_type}")
         logger.info(f"Parameters: {action}")
 
+        # Emit action_start event for UI
+        if self.progress_callback:
+            self.progress_callback({
+                "type": "action_start",
+                "action_type": action_type,
+                "details": str(action),
+                "action_data": action,
+            })
+
         # Validate action
         validation_error = self._validate_action(action)
         if validation_error:
             logger.error(f"✗ VALIDATION ERROR: {validation_error}")
-            return ActionResult(False, action_type, validation_error)
+            result = ActionResult(False, action_type, validation_error)
+
+            # Emit failure event
+            if self.progress_callback:
+                self.progress_callback({
+                    "type": "action_result",
+                    "action_type": action_type,
+                    "success": False,
+                    "message": validation_error,
+                })
+
+            return result
 
         # Route to appropriate handler
         handlers = {
@@ -280,20 +303,49 @@ class ActionExecutor:
         handler = handlers.get(action_type)
         if not handler:
             logger.error(f"Unknown action type: {action_type}")
-            return ActionResult(False, action_type, f"Unknown action type: {action_type}")
+            result = ActionResult(False, action_type, f"Unknown action type: {action_type}")
+
+            # Emit failure event
+            if self.progress_callback:
+                self.progress_callback({
+                    "type": "action_result",
+                    "action_type": action_type,
+                    "success": False,
+                    "message": f"Unknown action type: {action_type}",
+                })
+
+            return result
 
         # Execute with retry logic
-        return self._execute_with_retry(action_type, handler, action)
+        result = self._execute_with_retry(action_type, handler, action)
 
-    def execute_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
+        # Emit action_result event for UI
+        if self.progress_callback:
+            self.progress_callback({
+                "type": "action_result",
+                "action_type": action_type,
+                "success": result.success,
+                "message": result.message,
+                "data": result.data,
+            })
+
+        return result
+
+    def execute_actions(self, actions: List[Dict[str, Any]], progress_callback: Optional[Callable] = None) -> List[ActionResult]:
         """Execute multiple actions.
 
         Args:
             actions: List of action dictionaries
+            progress_callback: Optional callback for progress updates (overrides instance callback)
 
         Returns:
             List of ActionResults
         """
+        # Use provided callback or fall back to instance callback
+        old_callback = self.progress_callback
+        if progress_callback is not None:
+            self.progress_callback = progress_callback
+
         logger.warning("=" * 60)
         logger.warning(f"EXECUTING ACTION BATCH: {len(actions)} actions")
         logger.warning("=" * 60)
@@ -311,6 +363,9 @@ class ActionExecutor:
         logger.warning("=" * 60)
         logger.warning(f"BATCH COMPLETE: {success_count} succeeded, {fail_count} failed")
         logger.warning("=" * 60)
+
+        # Restore original callback
+        self.progress_callback = old_callback
 
         return results
 
@@ -834,6 +889,13 @@ class ActionExecutor:
 
         code = action.get("code")
 
+        # Emit code_execution_start event for UI
+        if self.progress_callback:
+            self.progress_callback({
+                "type": "code_execution_start",
+                "code": code,
+            })
+
         # Execute code with GemBrain API
         try:
             exec_result = self.code_executor.execute(code)
@@ -846,26 +908,44 @@ class ActionExecutor:
             error = exec_result["error"]
             exec_time = exec_result["execution_time"]
 
+            result_data = {
+                "success": success,
+                "stdout": stdout,
+                "stderr": stderr,
+                "result": result,
+                "error": error,
+                "execution_time": exec_time,
+            }
+
+            # Emit code_execution_result event for UI
+            if self.progress_callback:
+                self.progress_callback({
+                    "type": "code_execution_result",
+                    "data": result_data,
+                })
+
             return ActionResult(
                 success,
                 "execute_code",
                 "Code executed successfully" if success else "Code execution failed",
-                {
-                    "success": success,
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "result": result,
-                    "error": error,
-                    "execution_time": exec_time,
-                },
+                result_data,
             )
         except Exception as e:
+            error_data = {
+                "success": False,
+                "error": str(e),
+            }
+
+            # Emit code_execution_result event for UI (with error)
+            if self.progress_callback:
+                self.progress_callback({
+                    "type": "code_execution_result",
+                    "data": error_data,
+                })
+
             return ActionResult(
                 False,
                 "execute_code",
                 f"Code execution error: {e}",
-                {
-                    "success": False,
-                    "error": str(e),
-                },
+                error_data,
             )

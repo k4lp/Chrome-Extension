@@ -122,7 +122,7 @@ class Orchestrator:
                 # Optionally execute actions
                 action_results = None
                 if auto_apply_actions and actions:
-                    action_results = self._execute_actions(actions)
+                    action_results = self._execute_actions(actions, progress_callback=progress_callback)
 
                 return OrchestratorResponse(
                     reply_text=reply_text,
@@ -157,7 +157,7 @@ class Orchestrator:
             # Optionally execute actions
             action_results = None
             if auto_apply_actions and actions:
-                action_results = self._execute_actions(actions)
+                action_results = self._execute_actions(actions, progress_callback=progress_callback)
 
             return OrchestratorResponse(
                 reply_text=reply_text,
@@ -352,11 +352,12 @@ class Orchestrator:
 
         return blocks
 
-    def _execute_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
+    def _execute_actions(self, actions: List[Dict[str, Any]], progress_callback: Optional[callable] = None) -> List[ActionResult]:
         """Execute actions with safety checks.
 
         Args:
             actions: List of actions to execute
+            progress_callback: Optional callback for progress updates
 
         Returns:
             List of ActionResults
@@ -369,8 +370,8 @@ class Orchestrator:
             )
             actions = actions[:max_actions]
 
-        # Execute actions
-        return self.action_executor.execute_actions(actions)
+        # Execute actions with progress callback
+        return self.action_executor.execute_actions(actions, progress_callback=progress_callback)
 
     def is_configured(self) -> bool:
         """Check if orchestrator is properly configured.
