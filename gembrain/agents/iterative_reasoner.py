@@ -9,6 +9,7 @@ import re
 
 from .gemini_client import GeminiClient
 from ..config.models import Settings
+from ..utils.datavault_tags import RenderResult, render_datavault_tags
 
 
 @dataclass
@@ -43,11 +44,14 @@ class ReasoningSession:
     user_query: str
     iterations: List[ReasoningIteration] = field(default_factory=list)
     final_output: Optional[str] = None
+    raw_final_output: Optional[str] = None
     completion_reason: Optional[str] = None
     is_complete: bool = False
     verification_result: Optional[Dict[str, Any]] = None
     started_at: datetime = field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
+    final_output_sources: List[Dict[str, Any]] = field(default_factory=list)
+    final_output_warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -55,11 +59,14 @@ class ReasoningSession:
             "user_query": self.user_query,
             "iterations": [it.to_dict() for it in self.iterations],
             "final_output": self.final_output,
+             "raw_final_output": self.raw_final_output,
             "completion_reason": self.completion_reason,
             "is_complete": self.is_complete,
             "verification_result": self.verification_result,
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "final_output_sources": self.final_output_sources,
+            "final_output_warnings": self.final_output_warnings,
         }
 
 
@@ -405,6 +412,7 @@ class IterativeReasoner:
         self.gemini_client = gemini_client
         self.settings = settings
         self.action_handler = action_handler
+        self.datavault_service = getattr(action_handler, "datavault_service", None)
         self.max_iterations = max_iterations
 
     def reason(
@@ -562,19 +570,43 @@ class IterativeReasoner:
                 logger.info(f"🏁 is_final: {is_final}")
 
                 if is_final:
-                    session.final_output = iteration_data.get("final_output", "")
-                    session.completion_reason = iteration_data.get("completion_reason", "")
+                    session.raw_final_output = iteration_data.get('final_output', '')
+                    render_result = self._render_final_output(session.raw_final_output)
+                    session.final_output = render_result.rendered_text
+                    session.final_output_sources = [
+                        {
+                            'item_id': item.item_id,
+                            'heading': item.heading,
+                            'content_length': item.content_length,
+                            'truncated': item.truncated,
+                        }
+                        for item in render_result.items
+                    ]
+                    session.final_output_warnings = render_result.warnings
+                    session.completion_reason = iteration_data.get('completion_reason', '')
                     session.is_complete = True
                     session.completed_at = datetime.now()
-                    logger.info(f"✅ Reasoning complete after {iteration_count} iterations")
-                    logger.info(f"📤 Final output length: {len(session.final_output)} chars")
+                    logger.info(f"?o. Reasoning complete after {iteration_count} iterations")
+                    logger.info(
+                        f"dY" Final output length: {len(session.final_output or '')} chars "
+                        f"(raw: {len(session.raw_final_output or '')}, "
+                        f"datavault expansions: {len(session.final_output_sources)})"
+                    )
+
+                    if session.final_output_warnings:
+                        logger.warning(
+                            'Datavault rendering warnings: '
+                            + '; '.join(session.final_output_warnings)
+                        )
 
                     # Emit completion progress
                     if progress_callback:
                         progress_callback({
-                            "type": "reasoning_complete",
-                            "success": True,
-                            "message": f"Completed after {iteration_count} iterations",
+                            'type': 'reasoning_complete',
+                            'success': True,
+                            'message': f"Completed after {iteration_count} iterations",
+                            'final_output_sources': session.final_output_sources,
+                            'final_output_warnings': session.final_output_warnings,
                         })
 
                     break
@@ -663,6 +695,28 @@ class IterativeReasoner:
                 "error": str(e),
                 "verdict": "Verification failed due to error",
             }
+
+    def _render_final_output(self, text: Optional[str]) -> RenderResult:
+        """Render datavault tags inside the final output before display/verification."""
+        cleaned = text or ""
+        if not cleaned:
+            return RenderResult(rendered_text="")
+
+        if not self.datavault_service:
+            logger.debug("No datavault service available; skipping tag rendering")
+            return RenderResult(rendered_text=cleaned)
+
+        try:
+            result = render_datavault_tags(cleaned, self.datavault_service)
+            logger.info(
+                f"Expanded datavault tags BEFORE verification "
+                f"(items: {len(result.items)}, warnings: {len(result.warnings)})"
+            )
+            return result
+        except Exception as exc:
+            warning = f"datavault rendering failed: {exc}"
+            logger.error(warning)
+            return RenderResult(rendered_text=cleaned, warnings=[warning])
 
     def _get_tools_reference(self) -> str:
         """Get comprehensive tools and API reference documentation.
@@ -998,6 +1052,26 @@ Insights Gained:
 === FINAL OUTPUT ===
 {session.final_output}
 
+"""
+
+        context += "=== DATA VAULT SOURCES (rendered BEFORE verification) ===\n"
+        if session.final_output_sources:
+            for source in session.final_output_sources:
+                context += (
+                    f"- [ID {source['item_id']}] {source['heading']} "
+                    f"(chars: {source['content_length']}, "
+                    f"truncated: {'yes' if source['truncated'] else 'no'})\n"
+                )
+        else:
+            context += "No datavault sources rendered for final output.\n"
+
+        if session.final_output_warnings:
+            context += "Warnings:\n"
+            for warning in session.final_output_warnings:
+                context += f"  - {warning}\n"
+        context += "\n"
+
+        context += f"""
 === COMPLETION REASON ===
 {session.completion_reason}
 """

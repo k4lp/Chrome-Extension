@@ -30,6 +30,7 @@ class OrchestratorResponse:
     actions: List[Dict[str, Any]]
     action_results: Optional[List[ActionResult]] = None
     error: Optional[str] = None
+    final_output_metadata: Optional[Dict[str, Any]] = None
 
 
 class Orchestrator:
@@ -99,17 +100,18 @@ class Orchestrator:
                     progress_callback=progress_callback,
                 )
 
-                # Use final output as reply, with intelligent fallback to verification summary
+                # Use rendered final output as reply, with layered fallbacks
                 reply_text = session.final_output
                 if not reply_text or reply_text.strip() == "":
-                    # Fallback: Use verification's session summary if available
-                    if session.verification_result and session.verification_result.get("session_summary"):
+                    if session.raw_final_output:
+                        reply_text = session.raw_final_output
+                        logger.warning("Rendered final output empty - falling back to raw text")
+                    elif session.verification_result and session.verification_result.get("session_summary"):
                         reply_text = session.verification_result["session_summary"]
-                        logger.info("📝 Using verification session_summary as fallback output")
+                        logger.info("dY"? Using verification session_summary as fallback output")
                     else:
                         reply_text = "Reasoning completed but no output generated."
-                        logger.warning("⚠️ No final_output and no verification summary available")
-
+                        logger.warning("?s??,? No final_output and no verification summary available")
                 # Extract actions from all iterations
                 actions = []
                 for iteration in session.iterations:
@@ -124,10 +126,18 @@ class Orchestrator:
                 if auto_apply_actions and actions:
                     action_results = self._execute_actions(actions, progress_callback=progress_callback)
 
+                final_output_metadata = {
+                    "sources": session.final_output_sources,
+                    "warnings": session.final_output_warnings,
+                    "raw_final_output": session.raw_final_output,
+                    "verification_approved": approved,
+                }
+
                 return OrchestratorResponse(
                     reply_text=reply_text,
                     actions=actions,
                     action_results=action_results,
+                    final_output_metadata=final_output_metadata,
                 )
 
             # Standard mode (iterative reasoning disabled)
@@ -163,6 +173,7 @@ class Orchestrator:
                 reply_text=reply_text,
                 actions=actions,
                 action_results=action_results,
+                final_output_metadata=None,
             )
 
         except Exception as e:
@@ -171,6 +182,7 @@ class Orchestrator:
                 reply_text="",
                 actions=[],
                 error=str(e),
+                final_output_metadata=None,
             )
 
     def apply_actions(self, actions: List[Dict[str, Any]]) -> List[ActionResult]:
@@ -289,6 +301,7 @@ class Orchestrator:
                 reply_text=reply_text,
                 actions=actions,
                 action_results=action_results,
+                final_output_metadata=None,
             )
 
         except Exception as e:
@@ -297,6 +310,7 @@ class Orchestrator:
                 reply_text="",
                 actions=[],
                 error=str(e),
+                final_output_metadata=None,
             )
 
     def _build_context(self, ui_context: Optional[UIContext] = None) -> List[str]:

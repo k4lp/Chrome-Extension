@@ -1,5 +1,11 @@
 """Main application window."""
 
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
 from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -12,7 +18,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QInputDialog,
 )
-from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
 from loguru import logger
 
@@ -25,6 +31,48 @@ from .widgets.context_panel import ContextPanel
 from .widgets.status_bar import CustomStatusBar
 from .widgets.settings_dialog import SettingsDialog
 from ..automation.engine import AutomationEngine
+
+
+class TestRunnerThread(QThread):
+    """Background thread that runs pytest and records logs."""
+
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, workspace_path: Path, log_dir: Path):
+        super().__init__()
+        self.workspace_path = Path(workspace_path)
+        self.log_dir = Path(log_dir)
+
+    def run(self):
+        """Execute pytest via subprocess and save the output to a log file."""
+        try:
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = self.log_dir / f"test_run_{timestamp}.log"
+
+            cmd = [sys.executable, "-m", "pytest", "-q"]
+            logger.info(f"Running test suite via menu: {' '.join(cmd)}")
+            result = subprocess.run(
+                cmd,
+                cwd=str(self.workspace_path),
+                capture_output=True,
+                text=True,
+            )
+
+            log_contents = (
+                f"Command: {' '.join(cmd)}\n"
+                f"Return Code: {result.returncode}\n\n"
+                f"--- STDOUT ---\n{result.stdout}\n"
+                f"--- STDERR ---\n{result.stderr}\n"
+            )
+            log_path.write_text(log_contents, encoding="utf-8")
+
+            self.finished.emit(result.returncode == 0, str(log_path))
+        except Exception as exc:  # pragma: no cover - defensive UI logging
+            logger.error(f"Test runner failed: {exc}")
+            error_log = self.log_dir / "test_run_error.log"
+            error_log.write_text(str(exc), encoding="utf-8")
+            self.finished.emit(False, str(error_log))
 
 
 class MainWindow(QMainWindow):
@@ -46,6 +94,7 @@ class MainWindow(QMainWindow):
         self.automation_engine = automation_engine
         self.config_manager = config_manager
         self.settings = config_manager.settings
+        self._test_runner_thread: Optional[TestRunnerThread] = None
 
         self._setup_ui()
         self._setup_menu()
@@ -189,6 +238,12 @@ class MainWindow(QMainWindow):
         resurface_action = QAction("&Resurface Notes", self)
         resurface_action.triggered.connect(lambda: self._run_automation("resurface_notes"))
         automation_menu.addAction(resurface_action)
+
+        automation_menu.addSeparator()
+
+        test_action = QAction("Run &Full Test Suite", self)
+        test_action.triggered.connect(self._run_tests_from_menu)
+        automation_menu.addAction(test_action)
 
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -485,6 +540,41 @@ class MainWindow(QMainWindow):
                 "Automation Failed",
                 f"Failed to run {name}:\n{str(e)}",
             )
+
+    def _run_tests_from_menu(self):
+        """Trigger the full pytest suite and capture logs for sharing."""
+        if self._test_runner_thread and self._test_runner_thread.isRunning():
+            QMessageBox.information(
+                self,
+                "Tests Already Running",
+                "Please wait for the current test run to finish.",
+            )
+            return
+
+        log_dir = Path(self.settings.storage.backup_dir).expanduser().resolve().parent / "test_logs"
+        self._test_runner_thread = TestRunnerThread(Path.cwd(), log_dir)
+        self._test_runner_thread.finished.connect(self._on_tests_finished)
+        self.status_bar.set_status("Running test suite...", 0)
+        self._test_runner_thread.start()
+
+    def _on_tests_finished(self, success: bool, log_path: str):
+        """Handle completion of the background test runner."""
+        self.status_bar.set_status(
+            "Test suite passed" if success else "Test suite failed", 10000
+        )
+
+        message = (
+            f"All tests passed.\n\nLogs saved to:\n{log_path}"
+            if success
+            else f"Some tests failed.\n\nLogs saved to:\n{log_path}"
+        )
+        if success:
+            QMessageBox.information(self, "Test Suite Complete", message)
+        else:
+            QMessageBox.warning(self, "Test Suite Failed", message)
+
+        logger.info(f"Test suite finished (success={success}). Log file: {log_path}")
+        self._test_runner_thread = None
 
     def _show_about(self):
         """Show about dialog."""
