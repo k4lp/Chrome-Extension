@@ -51,6 +51,11 @@ class TasksPanel(QWidget):
 
         header.addStretch()
 
+        delete_all_btn = QPushButton("Delete All Tasks")
+        delete_all_btn.clicked.connect(self._delete_all_tasks)
+        delete_all_btn.setStyleSheet("background-color: #d32f2f; color: white;")
+        header.addWidget(delete_all_btn)
+
         new_btn = QPushButton("+ New Task")
         new_btn.clicked.connect(self._create_task)
         header.addWidget(new_btn)
@@ -145,3 +150,40 @@ class TasksPanel(QWidget):
         self.task_service.update_task(task_id, status=new_status)
         self.refresh()
         logger.info(f"Updated task {task_id} status to {new_status}")
+
+    def _delete_all_tasks(self):
+        """Delete all tasks with confirmation."""
+        # Get count of tasks
+        all_tasks = self.task_service.get_all_tasks()
+        task_count = len(all_tasks)
+
+        if task_count == 0:
+            QMessageBox.information(self, "No Tasks", "There are no tasks to delete.")
+            return
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete All",
+            f"Are you sure you want to delete all {task_count} tasks?\n\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                deleted_count = self.task_service.delete_all_tasks()
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Successfully deleted {deleted_count} tasks."
+                )
+                self.refresh()
+                logger.info(f"Deleted all {deleted_count} tasks via UI")
+            except Exception as e:
+                logger.error(f"Failed to delete all tasks: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to delete tasks: {e}"
+                )

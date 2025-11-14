@@ -52,6 +52,11 @@ class GoalsPanel(QWidget):
 
         header.addStretch()
 
+        delete_all_btn = QPushButton("Delete All Goals")
+        delete_all_btn.clicked.connect(self._delete_all_goals)
+        delete_all_btn.setStyleSheet("background-color: #d32f2f; color: white;")
+        header.addWidget(delete_all_btn)
+
         new_btn = QPushButton("+ New Goal")
         new_btn.clicked.connect(self._create_goal)
         header.addWidget(new_btn)
@@ -200,3 +205,40 @@ class GoalsPanel(QWidget):
         msg.setText(details)
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.exec()
+
+    def _delete_all_goals(self):
+        """Delete all goals with confirmation."""
+        # Get count of goals
+        all_goals = self.goal_service.get_all_goals()
+        goal_count = len(all_goals)
+
+        if goal_count == 0:
+            QMessageBox.information(self, "No Goals", "There are no goals to delete.")
+            return
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete All",
+            f"Are you sure you want to delete all {goal_count} goals?\n\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                deleted_count = self.goal_service.delete_all_goals()
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Successfully deleted {deleted_count} goals."
+                )
+                self.refresh()
+                logger.info(f"Deleted all {deleted_count} goals via UI")
+            except Exception as e:
+                logger.error(f"Failed to delete all goals: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to delete goals: {e}"
+                )

@@ -2,6 +2,7 @@
 
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from .repository import (
@@ -98,6 +99,16 @@ class TaskService:
         """Delete a task."""
         return TaskRepository.delete(self.db, task_id)
 
+    def delete_all_tasks(self) -> int:
+        """Delete all tasks.
+
+        Returns:
+            Number of tasks deleted
+        """
+        count = TaskRepository.delete_all(self.db)
+        logger.info(f"Deleted all {count} tasks")
+        return count
+
 
 class MemoryService:
     """Service for memory operations."""
@@ -149,6 +160,16 @@ class MemoryService:
         """Delete a memory."""
         return MemoryRepository.delete(self.db, memory_id)
 
+    def delete_all_memories(self) -> int:
+        """Delete all memories.
+
+        Returns:
+            Number of memories deleted
+        """
+        count = MemoryRepository.delete_all(self.db)
+        logger.info(f"Deleted all {count} memories")
+        return count
+
 
 class GoalService:
     """Service for goal operations."""
@@ -195,6 +216,16 @@ class GoalService:
     def delete_goal(self, goal_id: int) -> bool:
         """Delete a goal."""
         return GoalRepository.delete(self.db, goal_id)
+
+    def delete_all_goals(self) -> int:
+        """Delete all goals.
+
+        Returns:
+            Number of goals deleted
+        """
+        count = GoalRepository.delete_all(self.db)
+        logger.info(f"Deleted all {count} goals")
+        return count
 
 
 class DatavaultService:
@@ -249,6 +280,16 @@ class DatavaultService:
             logger.info(f"Deleted datavault item: {item_id}")
         return success
 
+    def delete_all_items(self) -> int:
+        """Delete all datavault items.
+
+        Returns:
+            Number of items deleted
+        """
+        count = DatavaultRepository.delete_all(self.db)
+        logger.info(f"Deleted all {count} datavault items")
+        return count
+
 
 class AutomationService:
     """Service for automation operations."""
@@ -290,3 +331,62 @@ class AutomationService:
     def delete_rule(self, rule_id: int) -> bool:
         """Delete automation rule."""
         return AutomationRuleRepository.delete(self.db, rule_id)
+
+
+class ExportService:
+    """Service for exporting data to files."""
+
+    @staticmethod
+    def export_datavault_item(item: Datavault, filepath: str) -> bool:
+        """Export a datavault item to a file.
+
+        Args:
+            item: Datavault item to export
+            filepath: Path where the file will be saved
+
+        Returns:
+            True if export was successful, False otherwise
+        """
+        try:
+            # Ensure the filepath has the correct extension
+            path = Path(filepath)
+            if not path.suffix:
+                # Add extension based on filetype if not provided
+                path = path.with_suffix(f".{item.filetype}")
+
+            # Write content to file
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(item.content)
+
+            logger.info(f"Exported datavault item {item.id} to {path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to export datavault item {item.id}: {e}")
+            return False
+
+    @staticmethod
+    def get_suggested_filename(item: Datavault, item_index: Optional[int] = None) -> str:
+        """Get a suggested filename for a datavault item.
+
+        Args:
+            item: Datavault item
+            item_index: Optional index number for the file
+
+        Returns:
+            Suggested filename
+        """
+        # Use notes as filename if available, otherwise use a generic name
+        if item.notes and item.notes.strip():
+            # Clean the notes to make it a valid filename
+            filename = "".join(c for c in item.notes if c.isalnum() or c in (' ', '-', '_')).strip()
+            filename = filename.replace(' ', '_')
+        else:
+            # Use generic name with ID
+            if item_index is not None:
+                filename = f"datavault_item_{item_index}"
+            else:
+                filename = f"datavault_item_{item.id}"
+
+        # Add extension
+        return f"{filename}.{item.filetype}"

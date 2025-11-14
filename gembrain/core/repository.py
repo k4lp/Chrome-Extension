@@ -114,6 +114,20 @@ class BaseRepository(Generic[T]):
         db.commit()
         return True
 
+    def delete_all(self, db: Session) -> int:
+        """Delete all items of this type.
+
+        Args:
+            db: Database session
+
+        Returns:
+            Number of items deleted
+        """
+        count = db.query(self.model).count()
+        db.query(self.model).delete()
+        db.commit()
+        return count
+
 
 class TaskRepository:
     """Repository for Task operations."""
@@ -162,6 +176,15 @@ class TaskRepository:
         """Delete a task."""
         return TaskRepository._base.delete(db, task_id)
 
+    @staticmethod
+    def delete_all(db: Session) -> int:
+        """Delete all tasks.
+
+        Returns:
+            Number of tasks deleted
+        """
+        return TaskRepository._base.delete_all(db)
+
 
 class MemoryRepository:
     """Repository for Memory operations."""
@@ -201,6 +224,15 @@ class MemoryRepository:
     def delete(db: Session, memory_id: int) -> bool:
         """Delete a memory."""
         return MemoryRepository._base.delete(db, memory_id)
+
+    @staticmethod
+    def delete_all(db: Session) -> int:
+        """Delete all memories.
+
+        Returns:
+            Number of memories deleted
+        """
+        return MemoryRepository._base.delete_all(db)
 
 
 class GoalRepository:
@@ -250,6 +282,15 @@ class GoalRepository:
         """Delete a goal."""
         return GoalRepository._base.delete(db, goal_id)
 
+    @staticmethod
+    def delete_all(db: Session) -> int:
+        """Delete all goals.
+
+        Returns:
+            Number of goals deleted
+        """
+        return GoalRepository._base.delete_all(db)
+
 
 class DatavaultRepository:
     """Repository for Datavault operations."""
@@ -297,6 +338,15 @@ class DatavaultRepository:
     def delete(db: Session, item_id: int) -> bool:
         """Delete a datavault item."""
         return DatavaultRepository._base.delete(db, item_id)
+
+    @staticmethod
+    def delete_all(db: Session) -> int:
+        """Delete all datavault items.
+
+        Returns:
+            Number of items deleted
+        """
+        return DatavaultRepository._base.delete_all(db)
 
 
 class AutomationRuleRepository:

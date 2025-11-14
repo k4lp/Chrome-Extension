@@ -15,11 +15,12 @@ from PyQt6.QtWidgets import (
     QTextEdit,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
 )
 from PyQt6.QtCore import Qt
 from loguru import logger
 
-from ...core.services import DatavaultService
+from ...core.services import DatavaultService, ExportService
 
 
 class DatavaultPanel(QWidget):
@@ -54,6 +55,11 @@ class DatavaultPanel(QWidget):
         header.addWidget(title)
 
         header.addStretch()
+
+        delete_all_btn = QPushButton("Delete All Items")
+        delete_all_btn.clicked.connect(self._delete_all_items)
+        delete_all_btn.setStyleSheet("background-color: #d32f2f; color: white;")
+        header.addWidget(delete_all_btn)
 
         new_btn = QPushButton("+ Store Data")
         new_btn.clicked.connect(self._store_data)
@@ -219,6 +225,10 @@ class DatavaultPanel(QWidget):
         # Buttons
         button_box = QDialogButtonBox()
 
+        export_btn = QPushButton("Export to File")
+        export_btn.clicked.connect(lambda: self._export_item(item))
+        button_box.addButton(export_btn, QDialogButtonBox.ButtonRole.ActionRole)
+
         delete_btn = QPushButton("Delete")
         delete_btn.clicked.connect(lambda: self._delete_item(item.id, dialog))
         button_box.addButton(delete_btn, QDialogButtonBox.ButtonRole.RejectRole)
@@ -251,6 +261,83 @@ class DatavaultPanel(QWidget):
             except Exception as e:
                 logger.error(f"Failed to delete item: {e}")
                 QMessageBox.critical(self, "Error", f"Failed to delete item: {e}")
+
+    def _delete_all_items(self):
+        """Delete all datavault items with confirmation."""
+        # Get count of items
+        all_items = self.datavault_service.get_all_items()
+        item_count = len(all_items)
+
+        if item_count == 0:
+            QMessageBox.information(self, "No Items", "There are no datavault items to delete.")
+            return
+
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete All",
+            f"Are you sure you want to delete all {item_count} datavault items?\n\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                deleted_count = self.datavault_service.delete_all_items()
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Successfully deleted {deleted_count} datavault items."
+                )
+                self.refresh()
+                logger.info(f"Deleted all {deleted_count} datavault items via UI")
+            except Exception as e:
+                logger.error(f"Failed to delete all items: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to delete items: {e}"
+                )
+
+    def _export_item(self, item):
+        """Export datavault item to file."""
+        try:
+            # Get suggested filename
+            suggested_filename = ExportService.get_suggested_filename(item)
+
+            # Open file dialog
+            filepath, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Datavault Item",
+                suggested_filename,
+                f"{item.filetype.upper()} Files (*.{item.filetype});;All Files (*.*)"
+            )
+
+            if filepath:
+                # Export the item
+                success = ExportService.export_datavault_item(item, filepath)
+
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Success",
+                        f"Successfully exported datavault item to:\n{filepath}"
+                    )
+                    logger.info(f"Exported datavault item {item.id} to {filepath}")
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Export Failed",
+                        "Failed to export the item. Please check the logs for details."
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to export item {item.id}: {e}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to export item: {e}"
+            )
 
 
 class DatavaultStoreDialog(QDialog):
