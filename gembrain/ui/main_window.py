@@ -17,8 +17,8 @@ from loguru import logger
 
 from .widgets.chat_panel import ChatPanel
 from .widgets.tasks_panel import TasksPanel
-# NOTE: Notes, Projects, Vault panels removed - data structures redesigned to Memory, Goals, Datavault
-# TODO: Create new panels for Memory, Goals, Datavault when UI is redesigned
+from .widgets.goals_panel import GoalsPanel
+from .widgets.datavault_panel import DatavaultPanel
 from .widgets.context_panel import ContextPanel
 from .widgets.status_bar import CustomStatusBar
 from .widgets.settings_dialog import SettingsDialog
@@ -79,11 +79,14 @@ class MainWindow(QMainWindow):
         # Create panels
         self.chat_panel = ChatPanel(self.db_session, self.orchestrator, self.settings)
         self.tasks_panel = TasksPanel(self.db_session, self.settings)
-        # TODO: Add panels for Memory, Goals, Datavault when UI is redesigned
+        self.goals_panel = GoalsPanel(self.db_session, self.settings)
+        self.datavault_panel = DatavaultPanel(self.db_session, self.settings)
 
         # Add panels to stack
         self.stack.addWidget(self.chat_panel)
         self.stack.addWidget(self.tasks_panel)
+        self.stack.addWidget(self.goals_panel)
+        self.stack.addWidget(self.datavault_panel)
 
         # RIGHT: Context panel
         if self.settings.ui.show_context_panel:
@@ -127,7 +130,8 @@ class MainWindow(QMainWindow):
         self.nav_list.setObjectName("navList")
         self.nav_list.addItem("💬 Chat")
         self.nav_list.addItem("✓ Tasks")
-        # TODO: Add navigation items for Memory, Goals, Datavault panels when UI is redesigned
+        self.nav_list.addItem("🎯 Goals")
+        self.nav_list.addItem("📦 Vault")
         layout.addWidget(self.nav_list)
 
         # Settings button at bottom
@@ -342,6 +346,8 @@ class MainWindow(QMainWindow):
             if self.context_panel:
                 self.context_panel.refresh()
             self.tasks_panel.refresh()
+            self.goals_panel.refresh()
+            self.datavault_panel.refresh()
 
             QMessageBox.information(
                 self,

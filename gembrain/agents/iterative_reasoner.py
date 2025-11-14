@@ -194,15 +194,34 @@ If all 3 are met, set is_final: true with the final_output field. Don't overthin
 IMPORTANT: If actions succeeded and you have an answer, SET is_final: true immediately!
 
 ═══════════════════════════════════════════════════════════════════════════════
-REASONING GUIDELINES
+YOU ARE A FULLY AUTONOMOUS AI AGENT
 ═══════════════════════════════════════════════════════════════════════════════
 
-1. **Think Deeply** - Use Chain-of-Thought reasoning
-2. **Be Systematic** - Break complex problems into steps
-3. **Use Available Actions** - List notes, search data, execute code, create tasks
-4. **Learn from Results** - Each iteration should build on previous results
-5. **Self-Critique** - Question your assumptions
-6. **Be Thorough** - Don't rush to completion
+You are a SELF-DIRECTED, PROACTIVE agent that independently plans and executes tasks
+without waiting for human approval. You have FULL AUTONOMY to make decisions and take action.
+
+**CORE OPERATING PRINCIPLES:**
+
+1. **BE AUTONOMOUS** - Take action immediately. Don't ask for permission or wait for approval
+2. **BE PROACTIVE** - Anticipate needs and act without being told. Execute liberally
+3. **THINK DEEPLY** - Use comprehensive Chain-of-Thought reasoning for EVERY decision
+4. **BE SYSTEMATIC** - Decompose complex problems into clear, manageable subtasks
+5. **EXECUTE LIBERALLY** - Use all available actions extensively (code, tasks, memory, datavault)
+6. **LOG EVERYTHING** - Use gb.log() to document EVERY step, decision, and observation
+7. **LEARN CONTINUOUSLY** - Each iteration builds on previous results and insights
+8. **SELF-CRITIQUE** - Question assumptions, validate results, iterate until perfect
+9. **BE THOROUGH** - Quality over speed. Take as many iterations as needed
+
+**MANDATORY LOGGING:**
+- At the START of each iteration: gb.log("Starting iteration N: <what you're doing>")
+- For EVERY action taken: gb.log("<action description>: <details>")
+- For EVERY decision made: gb.log("Decision: <reasoning>")
+- For EVERY observation: gb.log("Observed: <what you noticed>")
+- At the END of each iteration: gb.log("Completed iteration N: <summary>")
+
+**YOU ARE IN CONTROL** - You decide what to do, when, and how. Execute code, create tasks,
+store data, and make decisions autonomously. The user trusts you to complete the task
+without micromanagement. ACT DECISIVELY AND INDEPENDENTLY.
 
 ═══════════════════════════════════════════════════════════════════════════════
 AVAILABLE ACTIONS
@@ -796,6 +815,55 @@ Insights Gained:
 
         return context
 
+    def _fix_json_control_chars(self, json_str: str) -> str:
+        """Fix unescaped control characters in JSON string values.
+
+        LLMs sometimes generate JSON with literal newlines/tabs in string values.
+        This function escapes them properly so json.loads() can parse it.
+        """
+        result = []
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(json_str):
+            # Handle escape sequences
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                continue
+
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                continue
+
+            # Track when we're inside a string
+            if char == '"':
+                in_string = not in_string
+                result.append(char)
+                continue
+
+            # Escape control characters inside strings
+            if in_string:
+                if char == '\n':
+                    result.append('\\n')
+                elif char == '\r':
+                    result.append('\\r')
+                elif char == '\t':
+                    result.append('\\t')
+                elif char == '\b':
+                    result.append('\\b')
+                elif char == '\f':
+                    result.append('\\f')
+                elif ord(char) < 32:  # Other control characters
+                    result.append(f'\\u{ord(char):04x}')
+                else:
+                    result.append(char)
+            else:
+                result.append(char)
+
+        return ''.join(result)
+
     def _parse_iteration_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse iteration response from model using proper brace counting."""
         try:
@@ -856,7 +924,11 @@ Insights Gained:
             logger.debug(f"✅ Found ```iteration block (length: {len(json_str)} chars)")
             logger.debug(f"JSON string preview: {json_str[:200]}")
 
-            parsed = json.loads(json_str, strict=False)
+            # Fix control characters in JSON string values
+            # LLMs sometimes generate literal newlines in JSON strings which need to be escaped
+            json_str_fixed = self._fix_json_control_chars(json_str)
+
+            parsed = json.loads(json_str_fixed, strict=False)
             logger.debug(f"✅ Successfully parsed JSON with keys: {list(parsed.keys())}")
             return parsed
 
