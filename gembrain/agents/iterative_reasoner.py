@@ -856,7 +856,7 @@ Insights Gained:
             logger.debug(f"✅ Found ```iteration block (length: {len(json_str)} chars)")
             logger.debug(f"JSON string preview: {json_str[:200]}")
 
-            parsed = json.loads(json_str)
+            parsed = json.loads(json_str, strict=False)
             logger.debug(f"✅ Successfully parsed JSON with keys: {list(parsed.keys())}")
             return parsed
 
@@ -875,7 +875,7 @@ Insights Gained:
             match = re.search(r"```verification\s*\n(.*?)\n```", response, re.DOTALL)
             if match:
                 json_str = match.group(1)
-                return json.loads(json_str)
+                return json.loads(json_str, strict=False)
             else:
                 logger.error("No ```verification block found in response")
                 return {"approved": False, "verdict": "Failed to parse verification response"}
