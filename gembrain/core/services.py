@@ -1,7 +1,7 @@
 """High-level services for business logic."""
 
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy.orm import Session
 
 from .repository import (
@@ -69,6 +69,23 @@ class TaskService:
         """
         return self.get_all_tasks(status)
 
+    def get_today_tasks(self) -> List[Task]:
+        """Get tasks created or updated today.
+
+        Returns:
+            List of tasks from today
+        """
+        today = date.today()
+        all_tasks = TaskRepository.get_all(self.db)
+
+        # Filter tasks created or updated today
+        today_tasks = [
+            task for task in all_tasks
+            if (task.created_at.date() == today or task.updated_at.date() == today)
+        ]
+
+        return today_tasks
+
     def search_tasks(self, query: str) -> List[Task]:
         """Search tasks by content or notes."""
         return TaskRepository.search(self.db, query)
@@ -106,9 +123,19 @@ class MemoryService:
         """Get memory by ID."""
         return MemoryRepository.get_by_id(self.db, memory_id)
 
-    def get_all_memories(self) -> List[Memory]:
-        """Get all memories."""
-        return MemoryRepository.get_all(self.db)
+    def get_all_memories(self, limit: Optional[int] = None) -> List[Memory]:
+        """Get all memories.
+
+        Args:
+            limit: Optional limit on number of memories to return
+
+        Returns:
+            List of memories (limited if specified)
+        """
+        memories = MemoryRepository.get_all(self.db)
+        if limit:
+            return memories[:limit]
+        return memories
 
     def search_memories(self, query: str) -> List[Memory]:
         """Search memories by content or notes."""
