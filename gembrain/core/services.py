@@ -58,6 +58,17 @@ class TaskService:
         """Get all tasks, optionally filtered by status."""
         return TaskRepository.get_all(self.db, status)
 
+    def get_tasks_by_status(self, status: TaskStatus) -> List[Task]:
+        """Get tasks filtered by status.
+
+        Args:
+            status: Task status to filter by
+
+        Returns:
+            List of tasks with the specified status
+        """
+        return self.get_all_tasks(status)
+
     def search_tasks(self, query: str) -> List[Task]:
         """Search tasks by content or notes."""
         return TaskRepository.search(self.db, query)
