@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QInputDialog,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor, QFont
 from loguru import logger
 
 from ...core.services import GoalService
@@ -109,16 +110,15 @@ class GoalsPanel(QWidget):
 
         # Populate pending list
         for goal in pending_goals:
-            self._add_goal_to_list(self.pending_list, goal, "○")
+            self._add_goal_to_list(self.pending_list, goal)
 
         # Populate completed list
         for goal in completed_goals:
-            self._add_goal_to_list(self.completed_list, goal, "✓")
+            self._add_goal_to_list(self.completed_list, goal)
 
         # Populate all list
         for goal in all_goals:
-            icon = "✓" if goal.status == GoalStatus.COMPLETED else "○"
-            self._add_goal_to_list(self.all_list, goal, icon)
+            self._add_goal_to_list(self.all_list, goal)
 
         # Update stats
         self.stats_label.setText(
@@ -127,17 +127,37 @@ class GoalsPanel(QWidget):
 
         logger.info(f"Loaded {len(all_goals)} goals")
 
-    def _add_goal_to_list(self, list_widget: QListWidget, goal, icon: str):
-        """Add goal to list widget."""
+    def _add_goal_to_list(self, list_widget: QListWidget, goal):
+        """Add goal to list widget with color coding."""
+        # Define status colors
+        status_colors = {
+            GoalStatus.PENDING: {"bg": "#fff8e1", "fg": "#f57c00", "icon": "🎯"},
+            GoalStatus.COMPLETED: {"bg": "#e8f5e9", "fg": "#4caf50", "icon": "✅"},
+        }
+
         # Truncate content to 100 chars
         content_preview = goal.content[:100] + "..." if len(goal.content) > 100 else goal.content
 
         # Add notes preview if present
         notes_str = f" ({goal.notes[:30]}...)" if goal.notes else ""
 
-        item_text = f"{icon} {content_preview}{notes_str}"
+        # Get status styling
+        colors = status_colors.get(goal.status, {"bg": "#f5f5f5", "fg": "#666", "icon": "⚪"})
+        status_icon = colors["icon"]
+
+        item_text = f"{status_icon}  {content_preview}{notes_str}"
         item = QListWidgetItem(item_text)
         item.setData(Qt.ItemDataRole.UserRole, goal.id)
+
+        # Set background color and text color
+        item.setBackground(QBrush(QColor(colors["bg"])))
+        item.setForeground(QBrush(QColor(colors["fg"])))
+
+        # Make text slightly bold for better visibility
+        font = QFont()
+        font.setPointSize(10)
+        item.setFont(font)
+
         list_widget.addItem(item)
 
     def _create_goal(self):

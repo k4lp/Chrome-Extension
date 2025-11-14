@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QBrush, QColor, QFont
 from loguru import logger
 
 from ...core.services import TaskService
@@ -106,14 +107,37 @@ class TasksPanel(QWidget):
         list_widget.clear()
         tasks = self.task_service.get_tasks_by_status(status)
 
+        # Define status colors and icons
+        status_colors = {
+            TaskStatus.PENDING: {"bg": "#fff4e6", "fg": "#e67e22", "icon": "⭕"},
+            TaskStatus.ONGOING: {"bg": "#e3f2fd", "fg": "#2196f3", "icon": "▶"},
+            TaskStatus.PAUSED: {"bg": "#fff3e0", "fg": "#ff9800", "icon": "⏸"},
+            TaskStatus.COMPLETED: {"bg": "#e8f5e9", "fg": "#4caf50", "icon": "✓"},
+        }
+
         for task in tasks:
             # Truncate content to 100 characters for display
             content_preview = task.content[:100] + "..." if len(task.content) > 100 else task.content
             notes_str = f" ({task.notes[:30]}...)" if task.notes else ""
-            text = f"{content_preview}{notes_str}"
+
+            # Get status styling
+            colors = status_colors.get(task.status, {"bg": "#f5f5f5", "fg": "#666", "icon": "•"})
+            icon = colors["icon"]
+
+            text = f"{icon}  {content_preview}{notes_str}"
 
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, task.id)
+
+            # Set background color and text color
+            item.setBackground(QBrush(QColor(colors["bg"])))
+            item.setForeground(QBrush(QColor(colors["fg"])))
+
+            # Make text slightly bold for better visibility
+            font = QFont()
+            font.setPointSize(10)
+            item.setFont(font)
+
             list_widget.addItem(item)
 
     def _create_task(self):
