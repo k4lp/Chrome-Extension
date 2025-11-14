@@ -836,7 +836,15 @@ class ActionExecutor:
 
         # Execute code with GemBrain API
         try:
-            success, stdout, stderr, result, error, exec_time = self.code_executor.execute(code)
+            exec_result = self.code_executor.execute(code)
+
+            # Extract values from result dictionary
+            success = exec_result["success"]
+            stdout = exec_result["stdout"]
+            stderr = exec_result["stderr"]
+            result = exec_result["result"]
+            error = exec_result["error"]
+            exec_time = exec_result["execution_time"]
 
             return ActionResult(
                 success,

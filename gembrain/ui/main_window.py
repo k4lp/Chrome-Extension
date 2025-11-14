@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QMessageBox,
+    QInputDialog,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QAction
@@ -156,6 +157,12 @@ class MainWindow(QMainWindow):
         migrate_action = QAction("&Migrate to New Schema", self)
         migrate_action.triggered.connect(self._migrate_database)
         file_menu.addAction(migrate_action)
+
+        file_menu.addSeparator()
+
+        delete_all_action = QAction("🗑️ Delete &All Data...", self)
+        delete_all_action.triggered.connect(self._delete_all_data)
+        file_menu.addAction(delete_all_action)
 
         file_menu.addSeparator()
 
@@ -329,6 +336,116 @@ class MainWindow(QMainWindow):
                 "Migration Failed",
                 f"Failed to migrate database:\n{str(e)}\n\n"
                 f"Your original database should still be intact."
+            )
+
+    def _delete_all_data(self):
+        """Delete all data (Tasks, Goals, Memories, Datavault items)."""
+        # Show strong warning dialog
+        warning = QMessageBox(self)
+        warning.setIcon(QMessageBox.Icon.Warning)
+        warning.setWindowTitle("Delete All Data")
+        warning.setText("⚠️ WARNING: This will DELETE ALL DATA!")
+        warning.setInformativeText(
+            "This action will permanently delete:\n\n"
+            "• All Tasks (pending, ongoing, paused, completed)\n"
+            "• All Goals (pending, completed)\n"
+            "• All Memories\n"
+            "• All Datavault items\n\n"
+            "This action CANNOT BE UNDONE!\n\n"
+            "Are you absolutely sure you want to proceed?"
+        )
+        warning.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        warning.setDefaultButton(QMessageBox.StandardButton.No)
+
+        # Require confirmation
+        if warning.exec() != QMessageBox.StandardButton.Yes:
+            return
+
+        # Double confirmation for safety
+        confirm_text, ok = QInputDialog.getText(
+            self,
+            "Confirm Delete All",
+            "Type 'DELETE ALL' to confirm (case-sensitive):",
+        )
+
+        if not ok or confirm_text != "DELETE ALL":
+            QMessageBox.information(
+                self,
+                "Cancelled",
+                "Delete all operation cancelled."
+            )
+            return
+
+        try:
+            from ..core.services import (
+                TaskService,
+                MemoryService,
+                GoalService,
+                DatavaultService,
+            )
+
+            # Initialize services
+            task_service = TaskService(self.db_session)
+            memory_service = MemoryService(self.db_session)
+            goal_service = GoalService(self.db_session)
+            datavault_service = DatavaultService(self.db_session)
+
+            # Count items before deletion
+            tasks_count = len(task_service.get_all_tasks())
+            goals_count = len(goal_service.get_all_goals())
+            memories_count = len(memory_service.get_all_memories())
+            datavault_count = len(datavault_service.get_all_items())
+
+            # Delete all tasks
+            for task in task_service.get_all_tasks():
+                task_service.delete_task(task.id)
+
+            # Delete all goals
+            for goal in goal_service.get_all_goals():
+                goal_service.delete_goal(goal.id)
+
+            # Delete all memories
+            for memory in memory_service.get_all_memories():
+                memory_service.delete_memory(memory.id)
+
+            # Delete all datavault items
+            for item in datavault_service.get_all_items():
+                datavault_service.delete_item(item.id)
+
+            logger.warning("=" * 80)
+            logger.warning("DELETE ALL DATA - EXECUTED")
+            logger.warning(f"Deleted {tasks_count} tasks")
+            logger.warning(f"Deleted {goals_count} goals")
+            logger.warning(f"Deleted {memories_count} memories")
+            logger.warning(f"Deleted {datavault_count} datavault items")
+            logger.warning("=" * 80)
+
+            # Refresh all panels
+            self.tasks_panel.refresh()
+            self.goals_panel.refresh()
+            self.datavault_panel.refresh()
+            if self.context_panel:
+                self.context_panel.refresh()
+
+            QMessageBox.information(
+                self,
+                "Delete All Complete",
+                f"Successfully deleted all data:\n\n"
+                f"• {tasks_count} Tasks\n"
+                f"• {goals_count} Goals\n"
+                f"• {memories_count} Memories\n"
+                f"• {datavault_count} Datavault items\n\n"
+                f"All data has been permanently removed."
+            )
+
+        except Exception as e:
+            logger.error(f"Delete all failed: {e}")
+            QMessageBox.critical(
+                self,
+                "Delete All Failed",
+                f"Failed to delete all data:\n{str(e)}"
             )
 
     def _run_automation(self, name: str):
