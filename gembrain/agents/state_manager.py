@@ -451,7 +451,7 @@ class StateManager:
             if not state_file.exists():
                 return
 
-            state_data = json.loads(state_file.read_text())
+            state_data = json.loads(state_file.read_text(), strict=False)
 
             self._session_id = state_data["session_id"]
             self._session_start = datetime.fromisoformat(state_data["session_start"])

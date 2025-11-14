@@ -24,7 +24,7 @@ def extract_json_block(text: str, block_name: str = "actions") -> Optional[Dict[
 
     try:
         json_str = match.group(1).strip()
-        return json.loads(json_str)
+        return json.loads(json_str, strict=False)
     except json.JSONDecodeError:
         return None
 
@@ -61,7 +61,7 @@ def safe_json_loads(json_str: str, default: Any = None) -> Any:
         Parsed JSON or default value
     """
     try:
-        return json.loads(json_str)
+        return json.loads(json_str, strict=False)
     except (json.JSONDecodeError, TypeError):
         return default
 
