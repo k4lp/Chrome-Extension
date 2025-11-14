@@ -91,7 +91,7 @@ class GemBrainAPI:
             status: pending|ongoing|paused|completed
 
         Returns:
-            Task dict with id, content, notes, status, created_at
+            Task dict with id, task_id, content, notes, status, created_at
         """
         try:
             from ..core.models import TaskStatus
@@ -100,6 +100,7 @@ class GemBrainAPI:
             logger.info(f"✅ Code created task: {task.id}")
             return {
                 "id": task.id,
+                "task_id": task.id,  # For backwards compatibility
                 "content": task.content,
                 "notes": task.notes,
                 "status": task.status.value,
@@ -214,12 +215,12 @@ class GemBrainAPI:
             task_id: Task ID
 
         Returns:
-            True if deleted, False otherwise
+            Dict with success status
         """
         success = self.task_service.delete_task(task_id)
         if success:
             logger.info(f"🗑️ Code deleted task: {task_id}")
-        return success
+        return {"success": success, "task_id": task_id}
 
     # =========================================================================
     # MEMORY OPERATIONS
@@ -342,12 +343,12 @@ class GemBrainAPI:
             memory_id: Memory ID
 
         Returns:
-            True if deleted, False otherwise
+            Dict with success status
         """
         success = self.memory_service.delete_memory(memory_id)
         if success:
             logger.info(f"🗑️ Code deleted memory: {memory_id}")
-        return success
+        return {"success": success, "memory_id": memory_id}
 
     # =========================================================================
     # GOAL OPERATIONS
@@ -485,12 +486,12 @@ class GemBrainAPI:
             goal_id: Goal ID
 
         Returns:
-            True if deleted, False otherwise
+            Dict with success status
         """
         success = self.goal_service.delete_goal(goal_id)
         if success:
             logger.info(f"🗑️ Code deleted goal: {goal_id}")
-        return success
+        return {"success": success, "goal_id": goal_id}
 
     # =========================================================================
     # DATAVAULT OPERATIONS
@@ -505,13 +506,14 @@ class GemBrainAPI:
             notes: LLM annotations about the stored content
 
         Returns:
-            Datavault item dict with id, filetype, notes, created_at
+            Datavault item dict with id, datavault_id, filetype, notes, created_at
         """
         try:
             item = self.datavault_service.store_item(content, filetype, notes)
             logger.info(f"💾 Code stored datavault item: {item.id} (type: {filetype})")
             return {
                 "id": item.id,
+                "datavault_id": item.id,  # For backwards compatibility
                 "filetype": item.filetype,
                 "notes": item.notes,
                 "content_length": len(content),
@@ -623,12 +625,12 @@ class GemBrainAPI:
             item_id: Datavault item ID
 
         Returns:
-            True if deleted, False otherwise
+            Dict with success status
         """
         success = self.datavault_service.delete_item(item_id)
         if success:
             logger.info(f"🗑️ Code deleted datavault item: {item_id}")
-        return success
+        return {"success": success, "item_id": item_id}
 
     # =========================================================================
     # UTILITY METHODS
