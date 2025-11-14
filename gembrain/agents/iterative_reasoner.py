@@ -664,11 +664,200 @@ class IterativeReasoner:
                 "verdict": "Verification failed due to error",
             }
 
+    def _get_tools_reference(self) -> str:
+        """Get comprehensive tools and API reference documentation.
+
+        This is included in EVERY iteration so the LLM always knows what tools are available.
+        """
+        return """
+═══════════════════════════════════════════════════════════════════════════════
+AVAILABLE TOOLS & METHODS - COMPLETE REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+
+You have access to the GemBrain API through the 'gb' object in code execution.
+Use these methods to manage tasks, memories, goals, and data storage.
+
+───────────────────────────────────────────────────────────────────────────────
+📋 TASK MANAGEMENT
+───────────────────────────────────────────────────────────────────────────────
+
+gb.create_task(content, notes="", status="pending")
+  → Create a new task
+  → Returns: {"task_id": int, "status": "pending/ongoing/paused/completed"}
+  → Example: gb.create_task("Review code", notes="Priority: high", status="pending")
+
+gb.list_tasks(status=None, limit=50)
+  → List all tasks, optionally filtered by status
+  → Status options: "pending", "ongoing", "paused", "completed", None (all)
+  → Returns: List of task objects with id, content, notes, status
+  → Example: gb.list_tasks(status="pending", limit=10)
+
+gb.update_task(task_id, content=None, notes=None, status=None)
+  → Update an existing task
+  → Only provide fields you want to change
+  → Returns: {"task_id": int, "updated": True}
+  → Example: gb.update_task(5, status="completed")
+
+gb.search_tasks(query, limit=20)
+  → Search tasks by content or notes
+  → Returns: List of matching tasks
+  → Example: gb.search_tasks("code review")
+
+gb.delete_task(task_id)
+  → Delete a task
+  → Returns: {"success": True/False}
+  → Example: gb.delete_task(5)
+
+───────────────────────────────────────────────────────────────────────────────
+🧠 MEMORY MANAGEMENT
+───────────────────────────────────────────────────────────────────────────────
+
+gb.create_memory(content, notes="")
+  → Store a memory/insight/fact
+  → Returns: {"memory_id": int}
+  → Example: gb.create_memory("User prefers Python over JavaScript", notes="preference")
+
+gb.list_memories(limit=50)
+  → List all memories
+  → Returns: List of memory objects with id, content, notes
+  → Example: gb.list_memories(limit=20)
+
+gb.update_memory(memory_id, content=None, notes=None)
+  → Update an existing memory
+  → Returns: {"memory_id": int, "updated": True}
+  → Example: gb.update_memory(3, content="Updated insight")
+
+gb.search_memories(query, limit=20)
+  → Search memories by content or notes
+  → Returns: List of matching memories
+  → Example: gb.search_memories("Python")
+
+gb.delete_memory(memory_id)
+  → Delete a memory
+  → Returns: {"success": True/False}
+  → Example: gb.delete_memory(3)
+
+───────────────────────────────────────────────────────────────────────────────
+🎯 GOAL MANAGEMENT
+───────────────────────────────────────────────────────────────────────────────
+
+gb.create_goal(content, notes="", status="pending")
+  → Define a goal/success criterion
+  → Returns: {"goal_id": int, "status": "pending/completed"}
+  → Example: gb.create_goal("Code must be well-documented", notes="quality check")
+
+gb.list_goals(status=None, limit=50)
+  → List all goals, optionally filtered by status
+  → Status options: "pending", "completed", None (all)
+  → Returns: List of goal objects
+  → Example: gb.list_goals(status="pending")
+
+gb.update_goal(goal_id, content=None, notes=None, status=None)
+  → Update an existing goal
+  → Returns: {"goal_id": int, "updated": True}
+  → Example: gb.update_goal(2, status="completed")
+
+gb.search_goals(query, limit=20)
+  → Search goals by content or notes
+  → Returns: List of matching goals
+  → Example: gb.search_goals("documentation")
+
+gb.delete_goal(goal_id)
+  → Delete a goal
+  → Returns: {"success": True/False}
+  → Example: gb.delete_goal(2)
+
+───────────────────────────────────────────────────────────────────────────────
+📦 DATAVAULT (Large Data Storage)
+───────────────────────────────────────────────────────────────────────────────
+
+gb.datavault_store(content, filetype="text", notes="")
+  → Store large data/code/results
+  → Filetypes: "text", "py", "js", "json", "md", "csv", "html", "xml"
+  → Returns: {"datavault_id": int}
+  → Example: gb.datavault_store(json.dumps(results), filetype="json", notes="analysis results")
+
+gb.datavault_get(item_id)
+  → Retrieve stored data by ID
+  → Returns: {"id": int, "content": str, "filetype": str, "notes": str}
+  → Example: gb.datavault_get(5)
+
+gb.datavault_list(filetype=None, limit=50)
+  → List all stored items, optionally filtered by filetype
+  → Returns: List of datavault items
+  → Example: gb.datavault_list(filetype="json", limit=10)
+
+gb.datavault_search(query, limit=20)
+  → Search datavault by content or notes
+  → Returns: List of matching items
+  → Example: gb.datavault_search("analysis")
+
+gb.datavault_update(item_id, content=None, filetype=None, notes=None)
+  → Update stored data
+  → Returns: {"datavault_id": int, "updated": True}
+  → Example: gb.datavault_update(5, notes="updated analysis")
+
+gb.datavault_delete(item_id)
+  → Delete stored data
+  → Returns: {"success": True/False}
+  → Example: gb.datavault_delete(5)
+
+───────────────────────────────────────────────────────────────────────────────
+🔧 UTILITY METHODS
+───────────────────────────────────────────────────────────────────────────────
+
+gb.log(message)
+  → Log a message for debugging/tracking
+  → Returns: None
+  → Example: gb.log("Starting data processing")
+  → **USE THIS EXTENSIVELY** - Log every step, decision, and observation!
+
+───────────────────────────────────────────────────────────────────────────────
+💡 USAGE PATTERNS & BEST PRACTICES
+───────────────────────────────────────────────────────────────────────────────
+
+1. **Create tasks for decomposed work:**
+   for subtask in subtasks:
+       gb.create_task(subtask['description'], notes=subtask['context'])
+
+2. **Store large data in datavault (NOT in tasks/memories):**
+   results = expensive_computation()
+   gb.datavault_store(json.dumps(results), filetype="json", notes="computation results")
+
+3. **Use memories for insights and facts:**
+   gb.create_memory("Data shows 80% users prefer dark mode", notes="user research insight")
+
+4. **Define goals for success criteria:**
+   gb.create_goal("Output must include at least 3 examples", notes="quality requirement")
+
+5. **Log everything for transparency:**
+   gb.log("Starting iteration 5: Analyzing user data")
+   gb.log("Decision: Using pandas for data analysis")
+   gb.log("Observation: Found 1000 records")
+   gb.log("Completed iteration 5: Data analyzed successfully")
+
+6. **Check current state before creating:**
+   existing_tasks = gb.list_tasks(status="pending")
+   if not any("data analysis" in t['content'] for t in existing_tasks):
+       gb.create_task("Analyze user data")
+
+7. **Update status as you progress:**
+   gb.update_task(task_id, status="ongoing")  # When starting
+   gb.update_task(task_id, status="completed")  # When done
+
+═══════════════════════════════════════════════════════════════════════════════
+END OF TOOLS REFERENCE
+═══════════════════════════════════════════════════════════════════════════════
+"""
+
     def _build_iteration_context(
         self, session: ReasoningSession, initial_context: Optional[List[str]] = None
     ) -> List[str]:
         """Build context for current iteration."""
         context_blocks = []
+
+        # ALWAYS include comprehensive tool documentation in EVERY iteration
+        context_blocks.append(self._get_tools_reference())
 
         if initial_context:
             context_blocks.extend(initial_context)
