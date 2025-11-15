@@ -1120,24 +1120,77 @@ Insights Gained:
         """Fix unescaped control characters and invalid escapes in JSON strings."""
         result = []
         in_string = False
-        escape_next = False
+        i = 0
 
-        for char in json_str:
-            if escape_next:
-                result.append(char)
-                escape_next = False
-                continue
+        while i < len(json_str):
+            char = json_str[i]
 
-            if char == '\\':
-                result.append(char)
-                escape_next = True
-                continue
-
+            # Track whether we're inside a JSON string value
+            # Count preceding backslashes to determine if quote is escaped
             if char == '"':
-                in_string = not in_string
+                # Count consecutive backslashes before this quote
+                num_backslashes = 0
+                j = i - 1
+                while j >= 0 and json_str[j] == '\\':
+                    num_backslashes += 1
+                    j -= 1
+
+                # If even number of backslashes (including 0), quote is not escaped
+                if num_backslashes % 2 == 0:
+                    in_string = not in_string
+
                 result.append(char)
+                i += 1
                 continue
 
+            # Handle backslashes - need to validate escape sequences
+            if char == '\\' and in_string:
+                # Look ahead to see what follows the backslash
+                if i + 1 < len(json_str):
+                    next_char = json_str[i + 1]
+
+                    # Check for multi-letter commands (LaTeX, etc.) first
+                    # These are like \alpha, \beta, \frac, etc.
+                    if next_char.isalpha():
+                        # Count how many consecutive letters follow
+                        j = i + 1
+                        while j < len(json_str) and json_str[j].isalpha():
+                            j += 1
+
+                        # If we have 2+ letters, it's a multi-letter command, escape it
+                        if j - i - 1 >= 2:
+                            result.append('\\\\')
+                            i += 1
+                            continue
+
+                    # Valid single-character JSON escapes
+                    if next_char in '"\\\/bfnrt':
+                        result.append(char)  # Keep the backslash
+                        result.append(next_char)
+                        i += 2
+                        continue
+
+                    # Valid unicode escape \uXXXX
+                    elif next_char == 'u' and i + 5 < len(json_str):
+                        # Check if next 4 chars are hex digits
+                        hex_chars = json_str[i+2:i+6]
+                        if len(hex_chars) == 4 and all(c in '0123456789abcdefABCDEF' for c in hex_chars):
+                            result.append(char)  # Keep \u
+                            result.append(next_char)
+                            i += 2
+                            continue
+
+                    # Invalid escape sequence - double the backslash
+                    result.append('\\\\')
+                    i += 1
+                    continue
+                else:
+                    # Backslash at end of string - escape it
+                    result.append('\\\\')
+                    i += 1
+                    continue
+
+            # Handle literal control characters that need escaping
             if in_string:
                 if char == '\n':
                     result.append('\\n')
@@ -1156,20 +1209,9 @@ Insights Gained:
             else:
                 result.append(char)
 
-        cleaned = ''.join(result)
+            i += 1
 
-        cleaned = self._escape_markdown_code_blocks(cleaned)
-
-        # Escape LaTeX-style multi-letter commands so JSON parsing keeps the backslash
-        def _escape_multiletter(match: re.Match) -> str:
-            token = match.group(1)
-            return f"\\\\{token}"
-
-        cleaned = re.sub(r'(?<!\\)\\([A-Za-z]{2,})', _escape_multiletter, cleaned)
-
-        # Double any remaining invalid escape sequences like \G or \*
-        cleaned = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned)
-        return cleaned
+        return ''.join(result)
 
     def _escape_markdown_code_blocks(self, text: str) -> str:
         """Ensure backslashes inside markdown code blocks are preserved."""
