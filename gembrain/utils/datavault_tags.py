@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 import re
 from typing import List, Optional, Protocol
 from loguru import logger
-
-
-TAG_PATTERN = re.compile(
-    r"\[\[datavault:(?P<id>\d+)(?:\|(?P<label>[^\]]+))?\]\]",
-    re.IGNORECASE,
-)
 
 
 class DatavaultServiceProtocol(Protocol):
@@ -50,10 +45,20 @@ class RenderResult:
     warnings: List[str] = field(default_factory=list)
 
 
-def parse_datavault_tags(text: str) -> List[TagReference]:
+@lru_cache(maxsize=16)
+def _get_tag_pattern(prefix: str) -> re.Pattern:
+    escaped = re.escape(prefix or "datavault")
+    return re.compile(
+        rf"\[\[{escaped}:(?P<id>\d+)(?:\|(?P<label>[^\]]+))?\]\]",
+        re.IGNORECASE,
+    )
+
+
+def parse_datavault_tags(text: str, tag_prefix: str = "datavault") -> List[TagReference]:
     """Parse datavault tags from text."""
+    pattern = _get_tag_pattern(tag_prefix)
     tags: List[TagReference] = []
-    for match in TAG_PATTERN.finditer(text or ""):
+    for match in pattern.finditer(text or ""):
         try:
             item_id = int(match.group("id"))
         except (TypeError, ValueError):
@@ -76,6 +81,7 @@ def render_datavault_tags(
     *,
     max_chars_per_item: int = 5000,
     heading_level: int = 3,
+    tag_prefix: str = "datavault",
 ) -> RenderResult:
     """Render datavault tags into full markdown content."""
     if not text:
@@ -84,6 +90,8 @@ def render_datavault_tags(
     items: List[RenderedItem] = []
     warnings: List[str] = []
     heading_prefix = "#" * max(1, heading_level)
+
+    pattern = _get_tag_pattern(tag_prefix)
 
     def _replace(match: re.Match) -> str:
         raw_id = match.group("id")
@@ -142,6 +150,5 @@ def render_datavault_tags(
         )
         return block
 
-    rendered = TAG_PATTERN.sub(_replace, text)
+    rendered = pattern.sub(_replace, text)
     return RenderResult(rendered_text=rendered, items=items, warnings=warnings)
-

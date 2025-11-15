@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from loguru import logger
 
-from ...core.services import TaskService, MemoryService
-from ...core.models import TaskStatus
+from gembrain.core.services import TaskService, MemoryService
+from gembrain.core.models import TaskStatus
 
 
 class ContextPanel(QWidget):

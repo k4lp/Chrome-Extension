@@ -6,12 +6,17 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
 from loguru import logger
 
-from ..config.manager import get_config_manager
-from ..core.db import init_db, get_db, close_db
-from ..agents.orchestrator import Orchestrator
-from ..automation.engine import AutomationEngine
-from ..utils.logging import setup_logging
-from .main_window import MainWindow
+# Ensure project root (containing the gembrain package) is on sys.path
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from gembrain.config.manager import get_config_manager
+from gembrain.core.db import init_db, get_db, close_db
+from gembrain.agents.orchestrator import Orchestrator
+from gembrain.automation.engine import AutomationEngine
+from gembrain.utils.logging import setup_logging
+from gembrain.ui.main_window import MainWindow
 
 
 class GemBrainApp:

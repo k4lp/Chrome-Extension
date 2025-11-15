@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTime
 from loguru import logger
 
-from ...config.defaults import AVAILABLE_MODELS, PROMPT_VARIANTS, FONT_FAMILIES
+from gembrain.config.defaults import AVAILABLE_MODELS, PROMPT_VARIANTS, FONT_FAMILIES
 
 
 class SettingsDialog(QDialog):

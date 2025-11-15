@@ -82,6 +82,11 @@ class AgentBehaviorConfig(BaseModel):
     auto_verify: bool = Field(
         default=True, description="Automatically verify reasoning results"
     )
+    datavault_tag_prefix: str = Field(
+        default="datavault",
+        description="Prefix used for datavault reference tags like [[prefix:123|Label]]",
+        min_length=1,
+    )
 
 
 class AutomationConfig(BaseModel):

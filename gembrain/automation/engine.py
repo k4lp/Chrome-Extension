@@ -7,10 +7,10 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from ..config.models import Settings
-from ..agents.orchestrator import Orchestrator
-from ..core.services import TaskService, MemoryService, AutomationService
-from ..core.models import AutomationTrigger
+from gembrain.config.models import Settings
+from gembrain.agents.orchestrator import Orchestrator
+from gembrain.core.services import TaskService, MemoryService, AutomationService
+from gembrain.core.models import AutomationTrigger
 
 
 class AutomationEngine:
@@ -160,7 +160,7 @@ class AutomationEngine:
             context = {}
 
             if today_tasks:
-                from ..core.models import TaskStatus
+                from gembrain.core.models import TaskStatus
 
                 completed = [t for t in today_tasks if t.status == TaskStatus.COMPLETED]
                 pending = [t for t in today_tasks if t.status != TaskStatus.COMPLETED]
@@ -207,8 +207,8 @@ Store the review summary in the datavault with filetype 'md' and notes 'daily-re
 
         try:
             # Gather week's context
-            from ..utils.time import days_ago
-            from ..core.models import TaskStatus
+            from gembrain.utils.time import days_ago
+            from gembrain.core.models import TaskStatus
 
             week_start = days_ago(7)
 
@@ -281,7 +281,7 @@ Store the review summary in the datavault with filetype 'md' and notes 'weekly-r
                 return
 
             # Filter old memories (older than specified days)
-            from ..utils.time import days_ago
+            from gembrain.utils.time import days_ago
             cutoff_date = days_ago(self.settings.automations.resurface_notes_age_days)
             old_memories = [m for m in all_memories if m.updated_at < cutoff_date]
 

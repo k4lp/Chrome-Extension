@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from loguru import logger
 
-from ...core.services import DatavaultService, ExportService
+from gembrain.core.services import DatavaultService, ExportService
 
 
 class DatavaultPanel(QWidget):

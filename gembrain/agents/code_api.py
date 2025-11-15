@@ -94,7 +94,7 @@ class GemBrainAPI:
             Task dict with id, task_id, content, notes, status, created_at
         """
         try:
-            from ..core.models import TaskStatus
+            from gembrain.core.models import TaskStatus
             status_enum = TaskStatus(status)
             task = self.task_service.create_task(content, notes, status_enum)
             logger.info(f"✅ Code created task: {task.id}")
@@ -141,7 +141,7 @@ class GemBrainAPI:
         Returns:
             List of task dicts
         """
-        from ..core.models import TaskStatus
+        from gembrain.core.models import TaskStatus
         status_enum = TaskStatus(status) if status else None
         tasks = self.task_service.get_all_tasks(status_enum)[:limit]
         return [
@@ -194,7 +194,7 @@ class GemBrainAPI:
         if notes is not None:
             kwargs["notes"] = notes
         if status is not None:
-            from ..core.models import TaskStatus
+            from gembrain.core.models import TaskStatus
             kwargs["status"] = TaskStatus(status)
 
         task = self.task_service.update_task(task_id, **kwargs)
@@ -219,7 +219,7 @@ class GemBrainAPI:
         """
         success = self.task_service.delete_task(task_id)
         if success:
-            logger.info(f"🗑️ Code deleted task: {task_id}")
+            logger.info(f"Code deleted task: {task_id}")
         return {"success": success, "task_id": task_id}
 
     # =========================================================================
@@ -238,9 +238,10 @@ class GemBrainAPI:
         """
         try:
             memory = self.memory_service.create_memory(content, notes)
-            logger.info(f"🧠 Code created memory: {memory.id}")
+            logger.info(f"Code created memory: {memory.id}")
             return {
                 "id": memory.id,
+                "memory_id": memory.id,
                 "content": memory.content,
                 "notes": memory.notes,
                 "created_at": memory.created_at.isoformat(),
@@ -328,9 +329,10 @@ class GemBrainAPI:
 
         memory = self.memory_service.update_memory(memory_id, **kwargs)
         if memory:
-            logger.info(f"🧠 Code updated memory: {memory.id}")
+            logger.info(f"Code updated memory: {memory.id}")
             return {
                 "id": memory.id,
+                "memory_id": memory.id,
                 "content": memory.content,
                 "notes": memory.notes,
             }
@@ -347,7 +349,7 @@ class GemBrainAPI:
         """
         success = self.memory_service.delete_memory(memory_id)
         if success:
-            logger.info(f"🗑️ Code deleted memory: {memory_id}")
+            logger.info(f"Code deleted memory: {memory_id}")
         return {"success": success, "memory_id": memory_id}
 
     # =========================================================================
@@ -366,7 +368,7 @@ class GemBrainAPI:
             Goal dict with id, content, notes, status, created_at
         """
         try:
-            from ..core.models import GoalStatus
+            from gembrain.core.models import GoalStatus
             status_enum = GoalStatus(status)
             goal = self.goal_service.create_goal(content, notes, status_enum)
             logger.info(f"🎯 Code created goal: {goal.id}")
@@ -412,7 +414,7 @@ class GemBrainAPI:
         Returns:
             List of goal dicts
         """
-        from ..core.models import GoalStatus
+        from gembrain.core.models import GoalStatus
         status_enum = GoalStatus(status) if status else None
         goals = self.goal_service.get_all_goals(status_enum)[:limit]
         return [
@@ -465,7 +467,7 @@ class GemBrainAPI:
         if notes is not None:
             kwargs["notes"] = notes
         if status is not None:
-            from ..core.models import GoalStatus
+            from gembrain.core.models import GoalStatus
             kwargs["status"] = GoalStatus(status)
 
         goal = self.goal_service.update_goal(goal_id, **kwargs)

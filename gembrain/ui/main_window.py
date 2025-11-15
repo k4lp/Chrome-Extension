@@ -22,15 +22,15 @@ from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal
 from PyQt6.QtGui import QAction
 from loguru import logger
 
-from .widgets.chat_panel import ChatPanel
-from .widgets.tasks_panel import TasksPanel
-from .widgets.goals_panel import GoalsPanel
-from .widgets.memory_panel import MemoryPanel
-from .widgets.datavault_panel import DatavaultPanel
-from .widgets.context_panel import ContextPanel
-from .widgets.status_bar import CustomStatusBar
-from .widgets.settings_dialog import SettingsDialog
-from ..automation.engine import AutomationEngine
+from gembrain.ui.widgets.chat_panel import ChatPanel
+from gembrain.ui.widgets.tasks_panel import TasksPanel
+from gembrain.ui.widgets.goals_panel import GoalsPanel
+from gembrain.ui.widgets.memory_panel import MemoryPanel
+from gembrain.ui.widgets.datavault_panel import DatavaultPanel
+from gembrain.ui.widgets.context_panel import ContextPanel
+from gembrain.ui.widgets.status_bar import CustomStatusBar
+from gembrain.ui.widgets.settings_dialog import SettingsDialog
+from gembrain.automation.engine import AutomationEngine
 
 
 class TestRunnerThread(QThread):
@@ -369,7 +369,7 @@ class MainWindow(QMainWindow):
             if self.db_session:
                 self.db_session.close()
 
-            from ..core.db import close_db, recreate_db
+            from gembrain.core.db import close_db, recreate_db
             close_db()
 
             # Step 3: Recreate database with new schema
@@ -438,7 +438,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            from ..core.services import (
+            from gembrain.core.services import (
                 TaskService,
                 MemoryService,
                 GoalService,

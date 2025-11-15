@@ -101,9 +101,8 @@ We need the final output block to support inline “datavault tags” so a reaso
 - Fallbacks ensure that if rendering fails, the system continues to behave like today, preventing outages.
 
 ## 6. Open Questions / Follow-ups
-1. Should tag syntax be configurable (settings) or hard-coded? (Plan assumes hard-coded for now; we can add config later.)
-2. Do we need to cache datavault lookups per session? (Probably not, but we can easily memoize inside the helper.)
-3. Should the UI show which datavault items were used? (Not required for the current request but now possible once metadata is exposed.)
+1. Should tag syntax be configurable (settings) or hard-coded? (Plan assumes hard-coded for now; we can add config later.) – **Decision: make it configurable so users can adjust syntax as needed.**
+2. Do we need to cache datavault lookups per session? (Probably not, but we can easily memoize inside the helper.) – **Decision: no caching for now; the helper can stay straightforward.**
+3. Should the UI show which datavault items were used? (Not required for the current request but now possible once metadata is exposed.) – **Decision: yes, expose this in the UI now that metadata is available.**
 
 This plan keeps the data bindings explicit, touches only the layers that actually own the final output, and guarantees tag expansion happens **BEFORE** verification and UI rendering, protecting the rest of the project from unintended regressions.
-

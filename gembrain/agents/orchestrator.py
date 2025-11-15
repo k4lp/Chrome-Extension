@@ -5,13 +5,13 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from .gemini_client import GeminiClient
-from .prompts import get_system_prompt
-from .tools import ActionExecutor, ActionResult
-from .iterative_reasoner import IterativeReasoner, ReasoningSession
-from ..config.models import Settings
-from ..core.services import TaskService, MemoryService, GoalService
-from ..utils.json_utils import parse_actions_from_response
+from gembrain.agents.gemini_client import GeminiClient
+from gembrain.agents.prompts import get_system_prompt
+from gembrain.agents.tools import ActionExecutor, ActionResult
+from gembrain.agents.iterative_reasoner import IterativeReasoner, ReasoningSession
+from gembrain.config.models import Settings
+from gembrain.core.services import TaskService, MemoryService, GoalService
+from gembrain.utils.json_utils import parse_actions_from_response
 
 
 @dataclass
@@ -100,6 +100,7 @@ class Orchestrator:
                     progress_callback=progress_callback,
                 )
 
+
                 # Use rendered final output as reply, with layered fallbacks
                 reply_text = session.final_output
                 if not reply_text or reply_text.strip() == "":
@@ -108,17 +109,18 @@ class Orchestrator:
                         logger.warning("Rendered final output empty - falling back to raw text")
                     elif session.verification_result and session.verification_result.get("session_summary"):
                         reply_text = session.verification_result["session_summary"]
-                        logger.info("dY"? Using verification session_summary as fallback output")
+                        logger.info("Using verification session_summary as fallback output")
                     else:
                         reply_text = "Reasoning completed but no output generated."
-                        logger.warning("?s??,? No final_output and no verification summary available")
+                        logger.warning("No final_output and no verification summary available")
+
                 # Extract actions from all iterations
                 actions = []
                 for iteration in session.iterations:
                     if iteration.actions_taken:
                         actions.extend(iteration.actions_taken)
 
-                logger.info(f"📊 Iterative reasoning: {len(session.iterations)} iterations, {len(actions)} total actions")
+                logger.info(f"Iterative reasoning: {len(session.iterations)} iterations, {len(actions)} total actions")
                 logger.info(f"✅ Verification: {'APPROVED' if approved else 'FAILED'}")
 
                 # Optionally execute actions
@@ -335,7 +337,7 @@ class Orchestrator:
 
         # Add open tasks
         if self.settings.agent_behavior.include_context_tasks:
-            from ..core.models import TaskStatus
+            from gembrain.core.models import TaskStatus
 
             pending_tasks = self.task_service.get_all_tasks(TaskStatus.PENDING)
             ongoing_tasks = self.task_service.get_all_tasks(TaskStatus.ONGOING)
@@ -351,7 +353,7 @@ class Orchestrator:
                 blocks.append(f"Open tasks:\n{tasks_text}")
 
         # Add pending goals
-        from ..core.models import GoalStatus
+        from gembrain.core.models import GoalStatus
 
         pending_goals = self.goal_service.get_all_goals(GoalStatus.PENDING)
         pending_goals = pending_goals[: self.settings.agent_behavior.max_context_items]

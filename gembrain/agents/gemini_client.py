@@ -1,10 +1,12 @@
 """Gemini API client wrapper."""
 
+from datetime import datetime
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 import google.generativeai as genai
 from loguru import logger
 
-from ..config.models import Settings
+from gembrain.config.models import Settings
 
 
 class GeminiClient:
@@ -21,6 +23,9 @@ class GeminiClient:
         self._api_keys = []
         self._current_key_index = 0
         self._configure()
+        self._debug_log_file: Optional[Path] = None
+        self._debug_exchange_counter = 0
+        self._prepare_debug_log()
 
     def _parse_api_keys(self) -> list[str]:
         """Parse newline-delimited API keys from settings.
@@ -76,7 +81,7 @@ class GeminiClient:
         self._current_key_index = (self._current_key_index + 1) % len(self._api_keys)
 
         logger.warning(
-            f"🔄 Rotating to API key #{self._current_key_index + 1}/{len(self._api_keys)}"
+            f"Rotating to API key #{self._current_key_index + 1}/{len(self._api_keys)}"
         )
 
         # Reconfigure with new key
@@ -92,7 +97,7 @@ class GeminiClient:
                     "max_output_tokens": self.settings.api.max_output_tokens,
                 },
             )
-            logger.info(f"✓ Successfully rotated to new API key")
+            logger.info("Successfully rotated to new API key")
             return True
         except Exception as e:
             logger.error(f"Failed to rotate API key: {e}")
@@ -107,6 +112,88 @@ class GeminiClient:
         self.settings = settings
         self._current_key_index = 0  # Reset to first key
         self._configure()
+        self._prepare_debug_log()
+
+    def _prepare_debug_log(self) -> None:
+        """Prepare the debug log destination for capturing raw LLM traffic."""
+        try:
+            db_path = Path(self.settings.storage.db_path).expanduser()
+            log_dir = db_path.parent / "llm_debug"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            self._debug_log_file = log_dir / "llm_exchanges.log"
+            logger.info(f"LLM debug log enabled at {self._debug_log_file}")
+        except Exception as exc:  # pragma: no cover - defensive only
+            logger.warning(f"Unable to prepare LLM debug log: {exc}")
+            self._debug_log_file = None
+
+    def _format_context_snapshot(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context_blocks: Optional[List[str]],
+    ) -> str:
+        """Create a human-readable snapshot of the context window."""
+
+        def _clean(text: str) -> str:
+            stripped = (text or "").strip()
+            return stripped if stripped else "<empty>"
+
+        lines: List[str] = [
+            "### SYSTEM PROMPT ###",
+            _clean(system_prompt),
+            "",
+            "### USER MESSAGE ###",
+            _clean(user_message),
+            "",
+            "### CONTEXT BLOCKS ###",
+        ]
+
+        if context_blocks:
+            for idx, block in enumerate(context_blocks, 1):
+                lines.append(f"-- Context Block {idx} --")
+                lines.append(_clean(block))
+                lines.append("")
+        else:
+            lines.append("(none)")
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    def _log_llm_exchange(
+        self,
+        exchange_type: str,
+        context_snapshot: str,
+        raw_prompt: str,
+        raw_response: str,
+    ) -> None:
+        """Append the exact prompt/response pair to the debug log."""
+        if not self._debug_log_file:
+            return
+
+        self._debug_exchange_counter += 1
+        timestamp = datetime.now().isoformat()
+        log_parts = [
+            "",
+            "=" * 80,
+            f"LLM Exchange #{self._debug_exchange_counter} [{exchange_type}] - {timestamp}",
+            f"Model: {self.settings.api.default_model}",
+            "",
+            context_snapshot,
+            "",
+            "### RAW PROMPT SENT ###",
+            raw_prompt,
+            "",
+            "### RAW RESPONSE ###",
+            raw_response if raw_response else "<empty response>",
+            "=" * 80,
+            "",
+        ]
+
+        try:
+            with open(self._debug_log_file, "a", encoding="utf-8") as log_file:
+                log_file.write("\n".join(log_parts))
+        except Exception as exc:  # pragma: no cover - defensive only
+            logger.warning(f"Failed to write LLM debug log: {exc}")
 
     def generate(
         self,
@@ -148,6 +235,9 @@ class GeminiClient:
             parts.append(f"User: {user_message}")
 
             full_prompt = "\n".join(parts)
+            context_snapshot = self._format_context_snapshot(
+                system_prompt, user_message, context_blocks
+            )
 
             # Generate response
             logger.debug(f"Generating with prompt length: {len(full_prompt)} chars")
@@ -157,6 +247,12 @@ class GeminiClient:
                 raise RuntimeError("Empty response from Gemini")
 
             logger.info("Successfully generated response")
+            self._log_llm_exchange(
+                "generate",
+                context_snapshot,
+                full_prompt,
+                response.text,
+            )
             return response.text
 
         except Exception as e:
@@ -240,15 +336,27 @@ class GeminiClient:
 
             parts.append(f"User: {user_message}")
             full_prompt = "\n".join(parts)
+            context_snapshot = self._format_context_snapshot(
+                system_prompt, user_message, context_blocks
+            )
 
             # Generate streaming response
             logger.debug(f"Generating streaming with prompt length: {len(full_prompt)} chars")
             response = self._model.generate_content(full_prompt, stream=True)
 
+            collected_chunks: List[str] = []
             for chunk in response:
                 if chunk.text:
+                    collected_chunks.append(chunk.text)
                     yield chunk.text
 
+            final_response = "".join(collected_chunks)
+            self._log_llm_exchange(
+                "generate_streaming",
+                context_snapshot,
+                full_prompt,
+                final_response,
+            )
             logger.info("Successfully completed streaming response")
 
         except Exception as e:

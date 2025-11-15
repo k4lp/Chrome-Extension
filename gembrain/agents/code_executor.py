@@ -27,7 +27,7 @@ class CodeExecutor:
         # Inject GemBrain API if provided
         if gembrain_api:
             self.execution_namespace['gb'] = gembrain_api
-            logger.info("✓ GemBrain API injected into code execution namespace as 'gb'")
+            logger.info("GemBrain API injected into code execution namespace as 'gb'")
 
         self.execution_count = 0
         self.execution_history = []
@@ -92,14 +92,12 @@ class CodeExecutor:
             if 'gb' in self.execution_namespace:
                 try:
                     gb_api = self.execution_namespace['gb']
-                    # Access all services and rollback their sessions
-                    for service_attr in ['note_service', 'task_service', 'project_service',
-                                         'memory_service', 'vault_service']:
-                        if hasattr(gb_api, service_attr):
-                            service = getattr(gb_api, service_attr)
-                            if hasattr(service, 'db'):
-                                service.db.rollback()
-                                logger.info(f"🔄 Rolled back {service_attr} session")
+                    for service_attr in ['task_service', 'memory_service', 'goal_service', 'datavault_service']:
+                        service = getattr(gb_api, service_attr, None)
+                        db = getattr(service, 'db', None) if service else None
+                        if db:
+                            db.rollback()
+                            logger.info(f"Rolled back {service_attr} session")
                 except Exception as rollback_error:
                     logger.error(f"Error during rollback: {rollback_error}")
 

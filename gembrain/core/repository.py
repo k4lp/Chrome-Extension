@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 
-from .models import (
+from gembrain.core.models import (
     Task,
     Memory,
     Goal,

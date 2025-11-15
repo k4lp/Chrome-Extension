@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 
-from .models import Settings
-from .defaults import DEFAULT_SETTINGS
+from gembrain.config.models import Settings
+from gembrain.config.defaults import DEFAULT_SETTINGS
 
 
 class ConfigManager:

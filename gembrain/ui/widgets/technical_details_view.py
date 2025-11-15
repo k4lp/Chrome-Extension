@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from loguru import logger
 
-from .collapsible_box import CollapsibleBox
+from gembrain.ui.widgets.collapsible_box import CollapsibleBox
 
 try:
     import markdown

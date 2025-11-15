@@ -5,14 +5,14 @@ from datetime import datetime, date
 from pathlib import Path
 from sqlalchemy.orm import Session
 
-from .repository import (
+from gembrain.core.repository import (
     TaskRepository,
     MemoryRepository,
     GoalRepository,
     DatavaultRepository,
     AutomationRuleRepository,
 )
-from .models import (
+from gembrain.core.models import (
     Task,
     Memory,
     Goal,

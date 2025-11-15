@@ -7,9 +7,9 @@ from loguru import logger
 import json
 import re
 
-from .gemini_client import GeminiClient
-from ..config.models import Settings
-from ..utils.datavault_tags import RenderResult, render_datavault_tags
+from gembrain.agents.gemini_client import GeminiClient
+from gembrain.config.models import Settings
+from gembrain.utils.datavault_tags import RenderResult, render_datavault_tags
 
 
 @dataclass
@@ -413,6 +413,7 @@ class IterativeReasoner:
         self.settings = settings
         self.action_handler = action_handler
         self.datavault_service = getattr(action_handler, "datavault_service", None)
+        self.datavault_tag_prefix = settings.agent_behavior.datavault_tag_prefix or "datavault"
         self.max_iterations = max_iterations
 
     def reason(
@@ -586,9 +587,11 @@ class IterativeReasoner:
                     session.completion_reason = iteration_data.get('completion_reason', '')
                     session.is_complete = True
                     session.completed_at = datetime.now()
-                    logger.info(f"?o. Reasoning complete after {iteration_count} iterations")
                     logger.info(
-                        f"dY" Final output length: {len(session.final_output or '')} chars "
+                        f"Reasoning complete after {iteration_count} iterations"
+                    )
+                    logger.info(
+                        f"Final output length: {len(session.final_output or '')} chars "
                         f"(raw: {len(session.raw_final_output or '')}, "
                         f"datavault expansions: {len(session.final_output_sources)})"
                     )
@@ -707,7 +710,11 @@ class IterativeReasoner:
             return RenderResult(rendered_text=cleaned)
 
         try:
-            result = render_datavault_tags(cleaned, self.datavault_service)
+            result = render_datavault_tags(
+                cleaned,
+                self.datavault_service,
+                tag_prefix=self.datavault_tag_prefix,
+            )
             logger.info(
                 f"Expanded datavault tags BEFORE verification "
                 f"(items: {len(result.items)}, warnings: {len(result.warnings)})"
@@ -1009,7 +1016,7 @@ END OF TOOLS REFERENCE
 
         # Fetch and include Goals (if any exist)
         try:
-            from ..core.models import GoalStatus
+            from gembrain.core.models import GoalStatus
             # Access goal_service through action_handler
             pending_goals = self.action_handler.goal_service.get_all_goals(GoalStatus.PENDING)
 

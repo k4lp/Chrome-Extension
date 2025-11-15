@@ -47,7 +47,7 @@ def init_db(db_path: str, echo: bool = False) -> None:
     _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
 
     # Import all models to register them
-    from . import models  # noqa: F401
+    from gembrain.core import models  # noqa: F401
 
     # Create all tables
     Base.metadata.create_all(bind=_engine)
@@ -116,7 +116,7 @@ def recreate_db(db_path: str) -> None:
     )
 
     # Import all models to register them
-    from . import models  # noqa: F401
+    from gembrain.core import models  # noqa: F401
 
     # Drop all tables
     Base.metadata.drop_all(bind=_engine)

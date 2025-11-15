@@ -73,3 +73,12 @@ def test_render_truncates_large_content():
     assert result.items[0].truncated
     assert any("truncated" in warning for warning in result.warnings)
 
+
+def test_custom_tag_prefix_is_supported():
+    service = FakeDatavaultService([FakeDatavaultItem(2, "Notes content", notes="Custom")])
+    result = render_datavault_tags(
+        "Here [[vault:2|Doc]]", service, tag_prefix="vault"
+    )
+    assert "Notes content" in result.rendered_text
+    tags = parse_datavault_tags("Here [[vault:2|Doc]]", tag_prefix="vault")
+    assert tags[0].item_id == 2

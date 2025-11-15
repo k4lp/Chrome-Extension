@@ -15,8 +15,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont
 from loguru import logger
 
-from ...core.services import TaskService
-from ...core.models import TaskStatus
+from gembrain.core.services import TaskService
+from gembrain.core.models import TaskStatus
 
 
 class TasksPanel(QWidget):

@@ -9,15 +9,15 @@ from loguru import logger
 import time
 import traceback
 
-from ..core.services import (
+from gembrain.core.services import (
     TaskService,
     MemoryService,
     GoalService,
     DatavaultService,
 )
-from ..core.models import TaskStatus, GoalStatus
-from .code_executor import CodeExecutor
-from .code_api import GemBrainAPI
+from gembrain.core.models import TaskStatus, GoalStatus
+from gembrain.agents.code_executor import CodeExecutor
+from gembrain.agents.code_api import GemBrainAPI
 
 
 @dataclass
@@ -63,6 +63,7 @@ class ActionExecutor:
         "search_goals",
         "datavault_list",
         "datavault_search",
+        "log",
     }
 
     def __init__(
@@ -126,6 +127,7 @@ class ActionExecutor:
             "update_task": ["task_id"],
             "delete_task": ["task_id"],
             "get_task": ["task_id"],
+            "log": ["content"],
             "list_tasks": [],
             "search_tasks": ["query"],
             "create_memory": ["content"],
@@ -236,7 +238,7 @@ class ActionExecutor:
         action_type = action.get("type", "unknown")
 
         # Log action start
-        logger.info("─" * 60)
+        logger.info("-" * 60)
         logger.info(f"EXECUTING ACTION: {action_type}")
         logger.info(f"Parameters: {action}")
 
@@ -252,7 +254,7 @@ class ActionExecutor:
         # Validate action
         validation_error = self._validate_action(action)
         if validation_error:
-            logger.error(f"✗ VALIDATION ERROR: {validation_error}")
+            logger.error(f"VALIDATION ERROR: {validation_error}")
             result = ActionResult(False, action_type, validation_error)
 
             # Emit failure event
@@ -298,6 +300,8 @@ class ActionExecutor:
             "datavault_search": self._datavault_search,
             # Code execution
             "execute_code": self._execute_code,
+            # Utility
+            "log": self._log_action,
         }
 
         handler = handlers.get(action_type)
@@ -949,3 +953,21 @@ class ActionExecutor:
                 f"Code execution error: {e}",
                 error_data,
             )
+
+    # =========================================================================
+    # UTILITY ACTIONS
+    # =========================================================================
+
+    def _log_action(self, action: Dict[str, Any]) -> ActionResult:
+        """Record a log entry for debugging/traceability."""
+        content = action.get("content", "")
+        level = action.get("level", "info").lower()
+        log_map = {
+            "debug": logger.debug,
+            "info": logger.info,
+            "warning": logger.warning,
+            "error": logger.error,
+        }
+        log_func = log_map.get(level, logger.info)
+        log_func(f"[ACTION LOG] {content}")
+        return ActionResult(True, "log", f"Logged message at {level}", {"content": content})

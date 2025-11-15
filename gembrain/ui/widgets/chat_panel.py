@@ -1,5 +1,7 @@
 """Chat panel for interacting with the agent."""
 
+from typing import Dict, Optional
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,9 +19,9 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QTextCursor
 from loguru import logger
 
-from ...agents.orchestrator import OrchestratorResponse, UIContext
-from .conversation_view import ConversationView
-from .technical_details_view import TechnicalDetailsView
+from gembrain.agents.orchestrator import OrchestratorResponse, UIContext
+from gembrain.ui.widgets.conversation_view import ConversationView
+from gembrain.ui.widgets.technical_details_view import TechnicalDetailsView
 
 
 class OrchestratorWorker(QThread):
@@ -241,6 +243,7 @@ class ChatPanel(QWidget):
         else:
             # Show agent reply
             self._append_agent_message(response.reply_text)
+            self._show_final_output_metadata(response.final_output_metadata)
 
             # Handle actions
             if response.actions:
@@ -402,6 +405,36 @@ class ChatPanel(QWidget):
         except Exception as e:
             logger.error(f"Error applying actions: {e}")
             self._append_error_message(f"Error applying actions: {str(e)}")
+
+    def _show_final_output_metadata(self, metadata: Optional[Dict[str, Any]]):
+        """Display datavault sources/warnings associated with the final output."""
+        if not metadata:
+            return
+
+        sources = metadata.get("sources") or []
+        warnings = metadata.get("warnings") or []
+
+        if sources:
+            lines = []
+            for source in sources:
+                item_id = source.get("item_id")
+                heading = source.get("heading") or f"Datavault Item {item_id}"
+                length = source.get("content_length")
+                truncated = source.get("truncated")
+                detail = f"- {heading} (ID {item_id}, {length} chars"
+                if truncated:
+                    detail += ", truncated"
+                detail += ")"
+                lines.append(detail)
+
+            message = "Datavault sources referenced in this answer:\n" + "\n".join(lines)
+            self.conversation_view.append_system_message(message)
+
+        if warnings:
+            warn_text = "\n".join(f"- {warning}" for warning in warnings)
+            self.conversation_view.append_system_message(
+                "Datavault rendering warnings:\n" + warn_text
+            )
 
     def _append_user_message(self, text: str):
         """Append user message to conversation view."""

@@ -16,8 +16,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont
 from loguru import logger
 
-from ...core.services import GoalService
-from ...core.models import GoalStatus
+from gembrain.core.services import GoalService
+from gembrain.core.models import GoalStatus
 
 
 class GoalsPanel(QWidget):

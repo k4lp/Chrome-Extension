@@ -1,7 +1,7 @@
 """Automation rule definitions and helpers."""
 
 from typing import Dict, Any, List
-from ..core.models import AutomationTrigger
+from gembrain.core.models import AutomationTrigger
 
 
 # Predefined automation rule templates

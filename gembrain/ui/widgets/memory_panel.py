@@ -18,7 +18,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont
 from loguru import logger
 
-from ...core.services import MemoryService
+from gembrain.core.services import MemoryService
 
 
 class MemoryPanel(QWidget):

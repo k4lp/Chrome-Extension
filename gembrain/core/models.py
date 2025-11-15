@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 import enum
 
-from .db import Base
+from gembrain.core.db import Base
 
 
 class TaskStatus(str, enum.Enum):
