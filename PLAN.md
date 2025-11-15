@@ -6,7 +6,7 @@
 - **Verification path** – After reasoning, `IterativeReasoner.verify` builds a verification context via `_build_verification_context`, which currently injects the raw `session.final_output` straight into the verification prompt that is sent to the verification LLM.
 - **Action/Datavault bindings** – Both tool execution (`ActionExecutor` in `agents/tools.py`) and code-execution helpers (`GemBrainAPI` in `agents/code_api.py`) already use `DatavaultService` (`core/services.py`), which itself wraps `DatavaultRepository`/SQLAlchemy models. So the authoritative source of datavault content is already abstracted via this service layer.
 - **Observed limitation** – The reasoning prompt (see the `final_output` instructions around lines 160-210 of `iterative_reasoner.py`) tells the LLM to “use references to datavault items,” but there is no mechanism to actually expand placeholders. The UI and the verification model both see the bare reference tokens, so large, rich final answers never materialize even when multiple datavault items contain full explanations.
-- **Data integrity risk** – Because the final output string is pushed through multiple layers (iterative reasoner ➜ orchestrator ➜ verification ➜ UI ➜ persisted transcripts/tests), any change that mutates the string after the fact must respect the ordering. The user explicitly wants tags rendered **BEFORE** the text is displayed to humans or to the verification LLM. We must therefore hook into the data pipeline right after the LLM emits `final_output`, while still retaining the original text for traceability.
+- **Data integrity risk** – Because the final output string is pushed through multiple layers (iterative reasoner ➜ orchestrator ➜ verification ➜ UI ➜ persisted transcripts/logs), any change that mutates the string after the fact must respect the ordering. The user explicitly wants tags rendered **BEFORE** the text is displayed to humans or to the verification LLM. We must therefore hook into the data pipeline right after the LLM emits `final_output`, while still retaining the original text for traceability.
 
 ## 2. Problem Statement
 We need the final output block to support inline “datavault tags” so a reasoning pass can stitch together multiple vault entries without duplicating all of their content inside the LLM response. Currently the system cannot resolve those tags, causing short replies. The fix must:
@@ -25,7 +25,7 @@ We need the final output block to support inline “datavault tags” so a reaso
 3. **Verification context enhancement** – `_build_verification_context` must inject the rendered output (with tags expanded) while also appending a short appendix that lists which datavault items were injected, so the verification LLM understands the provenance of the text it is judging.
 4. **Orchestrator reply adaptation** – `Orchestrator.run_user_message` should use the rendered final output for `reply_text`, with fallback rules (rendered ➜ raw ➜ verification summary) to ensure we never regress. Also propagate the metadata in `OrchestratorResponse` if we want to surface it later (optional but planned to keep debugging hooks).
 5. **UI adjustments** – `ChatPanel._on_response_ready` ultimately just prints `reply_text`, so once step 4 is in place the UI automatically shows rendered text. Optionally add a future-friendly hook (e.g., ability to show “Datavault Sources” in TechnicalDetailsView) but that is outside this immediate plan unless needed downstream.
-6. **Testing & telemetry** – Add targeted unit tests (likely under `tests/`) that feed fake datavault content into the rendering helper to cover: multiple tags, missing IDs, optional titles, content truncation, and ensuring the helper is idempotent when no tags exist. Update logging in the reasoner to confirm when rendering happens and how many characters were produced, so regressions can be spotted quickly.
+6. **Telemetry & manual verification** – Expand logging in the reasoner to confirm when rendering happens, how many tags/items were expanded, and how many characters were produced. Maintain a lightweight manual checklist (store sample items, reference them, verify UI output) so releases can still be vetted without automated tests.
 
 ## 4. Detailed Implementation Steps
 
@@ -41,7 +41,7 @@ We need the final output block to support inline “datavault tags” so a reaso
      - `resolved_items` (list of dicts with id, notes, length),
      - `warnings`.
   3. Helper to format the injected markdown block (include heading + horizontal rule, or some consistent delimiter) so the final output becomes legitimately “very big” but still readable.
-- **Data binding:** the utility should *only* depend on `DatavaultService` (already exposes `get_item` etc.), so the pipeline remains testable by passing in a fake service.
+- **Data binding:** the utility should *only* depend on `DatavaultService` (already exposes `get_item` etc.), so the pipeline remains easy to validate by passing in a fake service.
 
 ### Step 2 – Extend `ReasoningSession` + Rendering Hook
 - **File:** `gembrain/agents/iterative_reasoner.py`
@@ -82,13 +82,13 @@ We need the final output block to support inline “datavault tags” so a reaso
 - Consider (for later) adding a pill or tooltip in `TechnicalDetailsView` to show which datavault items were used, using the new metadata if we pipe it through the response. Not in scope for the immediate change, but documenting it here ensures we remember the binding.
 
 ### Step 6 – Testing & Validation
-- **Unit tests:** add `tests/test_datavault_tags.py` (or augment an existing suite) that mocks `DatavaultService`:
+- **Manual validation checklist:** capture a short runbook for QA: create a couple of datavault items (plain + truncated), reference them in a reasoning session, confirm the UI renders the expanded content, and note any warnings that appear.
   1. Rendering with no tags returns the same string.
   2. Rendering with one tag pulls correct content and wraps it with the heading.
   3. Rendering with `|Custom Title` overrides the heading.
   4. Missing IDs produce warnings + placeholder text.
   5. Large content is truncated according to `max_chars_per_item`.
-- **Integration checks:** where feasible, extend the iterative reasoning tests (if present) or create a thin test that instantiates a `ReasoningSession`, feeds in a fake datavault service, and confirms `session.final_output` equals the rendered string.
+- **Integration checks:** periodically run an end-to-end reasoning session manually with datavault tags to confirm `session.final_output` equals the rendered string and that verification context shows the same sources, documenting results in release notes.
 - **Manual verification checklist:** run the UI, trigger a scenario where the LLM outputs tags (can be mocked by hardcoding a session), ensure:
   - Render happens before the verification call hits the LLM (check logs where we explicitly say “BEFORE verification”).
   - Conversation view shows the expanded markdown.

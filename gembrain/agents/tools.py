@@ -763,6 +763,32 @@ class ActionExecutor:
     # DATAVAULT ACTION HANDLERS
     # =========================================================================
 
+    def _serialize_datavault_item(self, item, *, include_content: bool = False) -> Dict[str, Any]:
+        """Create a consistent metadata dict for datavault items."""
+        if not item:
+            return {}
+
+        content = getattr(item, "content", "") or ""
+        data: Dict[str, Any] = {
+            "item_id": item.id,
+            "datavault_id": item.id,
+            "filetype": getattr(item, "filetype", "text"),
+            "notes": getattr(item, "notes", ""),
+            "content_length": len(content),
+        }
+
+        created_at = getattr(item, "created_at", None)
+        updated_at = getattr(item, "updated_at", None)
+        if created_at:
+            data["created_at"] = created_at.isoformat()
+        if updated_at:
+            data["updated_at"] = updated_at.isoformat()
+
+        if include_content:
+            data["content"] = content
+
+        return data
+
     def _datavault_store(self, action: Dict[str, Any]) -> ActionResult:
         """Store content in datavault."""
         content = action.get("content")
@@ -774,11 +800,7 @@ class ActionExecutor:
             True,
             "datavault_store",
             f"Stored datavault item {item.id}",
-            {
-                "item_id": item.id,
-                "filetype": item.filetype,
-                "content_length": len(content),
-            },
+            self._serialize_datavault_item(item),
         )
 
     def _datavault_get(self, action: Dict[str, Any]) -> ActionResult:
@@ -787,18 +809,14 @@ class ActionExecutor:
         item = self.datavault_service.get_item(item_id)
 
         if not item:
-            return ActionResult(False, "datavault_get", f"Datavault item {item_id} not found")
+            missing = {"item_id": item_id, "datavault_id": item_id}
+            return ActionResult(False, "datavault_get", f"Datavault item {item_id} not found", missing)
 
         return ActionResult(
             True,
             "datavault_get",
             f"Retrieved datavault item {item_id}",
-            {
-                "item_id": item.id,
-                "content": item.content,
-                "filetype": item.filetype,
-                "notes": item.notes,
-            },
+            self._serialize_datavault_item(item, include_content=True),
         )
 
     def _datavault_update(self, action: Dict[str, Any]) -> ActionResult:
@@ -815,26 +833,27 @@ class ActionExecutor:
 
         item = self.datavault_service.update_item(item_id, **kwargs)
         if not item:
-            return ActionResult(False, "datavault_update", f"Datavault item {item_id} not found")
+            missing = {"item_id": item_id, "datavault_id": item_id}
+            return ActionResult(False, "datavault_update", f"Datavault item {item_id} not found", missing)
 
+        data = self._serialize_datavault_item(item)
+        data["updated"] = True
         return ActionResult(
             True,
             "datavault_update",
             f"Updated datavault item {item.id}",
-            {
-                "item_id": item.id,
-                "filetype": item.filetype,
-            },
+            data,
         )
 
     def _datavault_delete(self, action: Dict[str, Any]) -> ActionResult:
         """Delete datavault item."""
         item_id = action.get("item_id")
         success = self.datavault_service.delete_item(item_id)
+        data = {"item_id": item_id, "datavault_id": item_id, "deleted": success}
 
         if success:
-            return ActionResult(True, "datavault_delete", f"Deleted datavault item {item_id}")
-        return ActionResult(False, "datavault_delete", f"Datavault item {item_id} not found")
+            return ActionResult(True, "datavault_delete", f"Deleted datavault item {item_id}", data)
+        return ActionResult(False, "datavault_delete", f"Datavault item {item_id} not found", data)
 
     def _datavault_list(self, action: Dict[str, Any]) -> ActionResult:
         """List datavault items."""
@@ -847,15 +866,7 @@ class ActionExecutor:
             "datavault_list",
             f"Found {len(items)} datavault items",
             {
-                "items": [
-                    {
-                        "id": i.id,
-                        "filetype": i.filetype,
-                        "notes": i.notes,
-                        "content_length": len(i.content),
-                    }
-                    for i in items
-                ]
+                "items": [self._serialize_datavault_item(i) for i in items]
             },
         )
 
@@ -865,20 +876,22 @@ class ActionExecutor:
         limit = action.get("limit", 20)
 
         items = self.datavault_service.search_items(query)[:limit]
+
+        def _add_preview(item):
+            data = self._serialize_datavault_item(item)
+            content = item.content or ""
+            preview = content[:200]
+            if len(content) > 200:
+                preview = preview.rstrip() + "..."
+            data["content_preview"] = preview
+            return data
+
         return ActionResult(
             True,
             "datavault_search",
             f"Found {len(items)} matching datavault items",
             {
-                "items": [
-                    {
-                        "id": i.id,
-                        "filetype": i.filetype,
-                        "notes": i.notes,
-                        "content_preview": i.content[:200] if len(i.content) > 200 else i.content,
-                    }
-                    for i in items
-                ]
+                "items": [_add_preview(i) for i in items]
             },
         )
 
