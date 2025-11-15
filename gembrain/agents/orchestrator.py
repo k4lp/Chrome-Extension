@@ -101,18 +101,8 @@ class Orchestrator:
                 )
 
 
-                # Use rendered final output as reply, with layered fallbacks
-                reply_text = session.final_output
-                if not reply_text or reply_text.strip() == "":
-                    if session.raw_final_output:
-                        reply_text = session.raw_final_output
-                        logger.warning("Rendered final output empty - falling back to raw text")
-                    elif session.verification_result and session.verification_result.get("session_summary"):
-                        reply_text = session.verification_result["session_summary"]
-                        logger.info("Using verification session_summary as fallback output")
-                    else:
-                        reply_text = "Reasoning completed but no output generated."
-                        logger.warning("No final_output and no verification summary available")
+                # Use verification-aware fallback strategy for reply selection
+                reply_text = self._select_iterative_reply(session, approved)
 
                 # Extract actions from all iterations
                 actions = []
@@ -221,7 +211,7 @@ class Orchestrator:
         logger.info(f"🧠 Starting iterative reasoning: {user_query}")
 
         # Build initial context
-        initial_context = self._build_context(ui_context)
+        base_context = list(self._build_context(ui_context))
 
         # Create reasoner
         reasoner = IterativeReasoner(
@@ -232,7 +222,7 @@ class Orchestrator:
         )
 
         # Run reasoning iterations
-        session = reasoner.reason(user_query, initial_context, progress_callback)
+        session = reasoner.reason(user_query, base_context, progress_callback)
 
         logger.info(
             f"✅ Reasoning completed: {len(session.iterations)} iterations, "
@@ -242,8 +232,33 @@ class Orchestrator:
         # Run verification
         logger.info("🔍 Running verification...")
         verification_result = reasoner.verify(session, verification_model)
-
         approved = verification_result.get("approved", False)
+
+        retry_limit = max(0, getattr(self.settings.agent_behavior, "verification_retry_limit", 0))
+        retries = 0
+
+        while not approved and retries < retry_limit:
+            retries += 1
+            logger.warning(
+                f"❌ Verification failed (attempt {retries}/{retry_limit}). "
+                "Sending feedback back into reasoning loop."
+            )
+            feedback_block = self._build_verification_feedback_block(session, verification_result)
+            retry_context = list(base_context)
+            retry_context.append(feedback_block)
+
+            retry_session = reasoner.reason(
+                user_query=user_query,
+                initial_context=retry_context,
+                progress_callback=progress_callback,
+            )
+            session = self._merge_reasoning_sessions(session, retry_session)
+
+            logger.info(
+                f"🔁 Re-verifying after remediation pass (total iterations: {len(session.iterations)})"
+            )
+            verification_result = reasoner.verify(session, verification_model)
+            approved = verification_result.get("approved", False)
 
         if approved:
             logger.info("✅ Verification PASSED - Output approved")
@@ -252,6 +267,128 @@ class Orchestrator:
             logger.warning(f"Reason: {verification_result.get('verdict', 'Unknown')}")
 
         return session, approved
+
+    def _select_iterative_reply(self, session: ReasoningSession, approved: bool) -> str:
+        """Choose the appropriate reply text after iterative reasoning."""
+        if approved:
+            reply_text = session.final_output
+            if reply_text and reply_text.strip():
+                return reply_text
+            if session.raw_final_output:
+                logger.warning("Rendered final output empty - falling back to raw text")
+                return session.raw_final_output
+            verification = session.verification_result or {}
+            if verification.get("session_summary"):
+                logger.info("Using verification session_summary as fallback output")
+                return verification["session_summary"]
+            logger.warning("No final_output and no verification summary available")
+            return "Reasoning completed but no output generated."
+
+        return self._build_failed_verification_reply(session)
+
+    def _build_failed_verification_reply(self, session: ReasoningSession) -> str:
+        """Create a user-facing reply when verification did not pass."""
+        verification = session.verification_result or {}
+        parts = ["⚠️ Verification did not approve the latest reasoning output."]
+
+        verdict = verification.get("verdict")
+        if verdict:
+            parts.append(f"**Verifier verdict:** {verdict}")
+
+        recommendation = verification.get("recommendation")
+        if recommendation:
+            parts.append(f"**Next steps suggested by verifier:** {recommendation}")
+
+        weaknesses = verification.get("weaknesses") or []
+        if weaknesses:
+            weaknesses_text = "\n".join(f"- {item}" for item in weaknesses)
+            parts.append(f"**Weaknesses detected:**\n{weaknesses_text}")
+
+        missing = verification.get("missing_elements") or []
+        if missing:
+            missing_text = "\n".join(f"- {item}" for item in missing)
+            parts.append(f"**Missing elements:**\n{missing_text}")
+
+        summary = verification.get("session_summary")
+        if summary:
+            parts.append("### Session Summary\n" + summary)
+        elif session.raw_final_output:
+            parts.append("### Last Attempted Output\n" + session.raw_final_output)
+        else:
+            parts.append("No final output was produced in the last attempt.")
+
+        parts.append(
+            "The agent has been instructed to address these items automatically when possible. "
+            "If the issues persist, please review the summary above."
+        )
+        return "\n\n".join(parts)
+
+    def _build_verification_feedback_block(
+        self, session: ReasoningSession, verification_result: Optional[Dict[str, Any]]
+    ) -> str:
+        """Create a context block that feeds verifier feedback back into reasoning."""
+        result = verification_result or {}
+        lines = [
+            "VERIFICATION_FEEDBACK:",
+            "Previous attempt failed verification. Address every issue listed below before setting is_final:true.",
+        ]
+
+        verdict = result.get("verdict")
+        if verdict:
+            lines.append(f"Verdict: {verdict}")
+
+        recommendation = result.get("recommendation")
+        if recommendation:
+            lines.append(f"Verifier recommendation: {recommendation}")
+
+        scores = result.get("criteria_scores") or {}
+        if scores:
+            lines.append("Criteria scores:")
+            for key, value in scores.items():
+                lines.append(f"- {key}: {value}")
+
+        weaknesses = result.get("weaknesses") or []
+        if weaknesses:
+            lines.append("Weaknesses:")
+            lines.extend(f"- {item}" for item in weaknesses)
+
+        missing = result.get("missing_elements") or []
+        if missing:
+            lines.append("Missing elements:")
+            lines.extend(f"- {item}" for item in missing)
+
+        summary = result.get("session_summary")
+        if summary:
+            lines.append("Verifier session summary:\n" + summary)
+
+        final_output = (session.final_output or session.raw_final_output or "").strip()
+        if final_output:
+            lines.append("Previous final_output draft:\n" + final_output)
+
+        lines.append(
+            "Use the information above to fix the answer. Double-check every criterion, "
+            "update the reasoning, and only set is_final:true when all verifier concerns are resolved."
+        )
+        return "\n".join(lines)
+
+    def _merge_reasoning_sessions(
+        self, base_session: ReasoningSession, extra_session: ReasoningSession
+    ) -> ReasoningSession:
+        """Append iterations/results from a remediation pass to the primary session."""
+        offset = len(base_session.iterations)
+        for iteration in extra_session.iterations:
+            iteration.iteration_number = offset + iteration.iteration_number
+            base_session.iterations.append(iteration)
+
+        base_session.final_output = extra_session.final_output
+        base_session.raw_final_output = extra_session.raw_final_output
+        base_session.completion_reason = extra_session.completion_reason
+        base_session.is_complete = extra_session.is_complete
+        base_session.completed_at = extra_session.completed_at
+        base_session.final_output_sources = extra_session.final_output_sources
+        base_session.final_output_warnings = extra_session.final_output_warnings
+
+        return base_session
 
     def run_automation(
         self,

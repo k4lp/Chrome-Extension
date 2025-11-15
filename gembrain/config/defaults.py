@@ -30,6 +30,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
         "max_reasoning_iterations": 50,
         "verification_model": "gemini-1.5-flash",
         "auto_verify": True,
+        "verification_retry_limit": 5,
     },
     "automations": {
         "daily_review_enabled": False,

@@ -87,6 +87,12 @@ class AgentBehaviorConfig(BaseModel):
         description="Prefix used for datavault reference tags like [[prefix:123|Label]]",
         min_length=1,
     )
+    verification_retry_limit: int = Field(
+        default=5,
+        ge=0,
+        le=5,
+        description="How many additional reasoning passes to run when verification fails",
+    )
 
 
 class AutomationConfig(BaseModel):
