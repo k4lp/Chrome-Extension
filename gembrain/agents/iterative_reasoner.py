@@ -434,6 +434,7 @@ class IterativeReasoner:
         """
         session = ReasoningSession(user_query=user_query)
         iteration_count = 0
+        forced_stop_reason: Optional[str] = None
 
         logger.info(f"🧠 Starting iterative reasoning for: {user_query}")
 
@@ -470,7 +471,19 @@ class IterativeReasoner:
                 if not iteration_data:
                     logger.error("❌ Failed to parse iteration response - no iteration_data returned")
                     logger.error(f"Response preview: {response[:500]}")
-                    break
+                    feedback_block = self._build_parsing_feedback_block(response[:1000])
+                    logger.info("🔁 Retrying iteration with parsing feedback injected into context")
+                    extra_context = (initial_context or []) + [feedback_block]
+                    response = self.gemini_client.generate(
+                        system_prompt=ITERATIVE_REASONING_PROMPT,
+                        user_message=f"Query: {user_query}\n\nRetry iteration {iteration_count} with corrected JSON format.",
+                        context_blocks=self._build_iteration_context(session, extra_context),
+                    )
+                    iteration_data = self._parse_iteration_response(response)
+
+                if not iteration_data:
+                    logger.error("❌ Second attempt failed - continuing loop without aborting")
+                    continue
 
                 logger.debug(f"✅ Parsed iteration data: {json.dumps(iteration_data, indent=2)}")
 
@@ -618,17 +631,35 @@ class IterativeReasoner:
 
             except Exception as e:
                 logger.error(f"Error in iteration {iteration_count}: {e}")
-                break
+                logger.warning(f"Iteration {iteration_count} raised: {e} -- injecting error feedback and continuing")
+                feedback_block = self._build_error_feedback_block(e)
+                extra_context = (initial_context or []) + [feedback_block]
+                try:
+                    response = self.gemini_client.generate(
+                        system_prompt=ITERATIVE_REASONING_PROMPT,
+                        user_message=f"Query: {user_query}\n\nReattempt iteration {iteration_count} after error feedback.",
+                        context_blocks=self._build_iteration_context(session, extra_context),
+                    )
+                    iteration_data = self._parse_iteration_response(response)
+                    if not iteration_data:
+                        logger.error("Retry after error still produced invalid response. Continuing to next iteration.")
+                        continue
+                except Exception as retry_error:
+                    logger.error(f"Retry after iteration error also failed: {retry_error}")
+                    continue
 
         # If max iterations reached without completion
         if not session.is_complete:
             session.is_complete = True
-            session.completion_reason = f"Maximum iterations ({self.max_iterations}) reached"
             session.completed_at = datetime.now()
 
-            # Note: final_output may be empty here if LLM never set is_final: true
-            # The verification step will generate session_summary which will be used as fallback
-            if not session.final_output:
+            session.completion_reason = (
+                forced_stop_reason
+                or f"Maximum iterations ({self.max_iterations}) reached"
+            )
+            if forced_stop_reason:
+                logger.warning(f"⚠️ Reasoning stopped early: {forced_stop_reason}")
+            elif not session.final_output:
                 logger.warning(f"⚠️ Forced stop after {self.max_iterations} iterations without final_output")
                 logger.info("📝 Verification will provide session_summary as fallback")
             else:
@@ -1086,17 +1117,12 @@ Insights Gained:
         return context
 
     def _fix_json_control_chars(self, json_str: str) -> str:
-        """Fix unescaped control characters in JSON string values.
-
-        LLMs sometimes generate JSON with literal newlines/tabs in string values.
-        This function escapes them properly so json.loads() can parse it.
-        """
+        """Fix unescaped control characters and invalid escapes in JSON strings."""
         result = []
         in_string = False
         escape_next = False
 
-        for i, char in enumerate(json_str):
-            # Handle escape sequences
+        for char in json_str:
             if escape_next:
                 result.append(char)
                 escape_next = False
@@ -1107,13 +1133,11 @@ Insights Gained:
                 escape_next = True
                 continue
 
-            # Track when we're inside a string
             if char == '"':
                 in_string = not in_string
                 result.append(char)
                 continue
 
-            # Escape control characters inside strings
             if in_string:
                 if char == '\n':
                     result.append('\\n')
@@ -1125,14 +1149,18 @@ Insights Gained:
                     result.append('\\b')
                 elif char == '\f':
                     result.append('\\f')
-                elif ord(char) < 32:  # Other control characters
+                elif ord(char) < 32:
                     result.append(f'\\u{ord(char):04x}')
                 else:
                     result.append(char)
             else:
                 result.append(char)
 
-        return ''.join(result)
+        cleaned = ''.join(result)
+
+        # Double any remaining invalid escape sequences like \G or \*
+        cleaned = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned)
+        return cleaned
 
     def _parse_iteration_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse iteration response from model using proper brace counting."""
@@ -1224,3 +1252,23 @@ Insights Gained:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse verification JSON: {e}")
             return {"approved": False, "verdict": f"JSON parse error: {e}"}
+    def _build_parsing_feedback_block(self, response_sample: str) -> str:
+        """Create context instructions when iteration JSON fails to parse."""
+        return (
+            "PARSING_FEEDBACK:\n"
+            "The previous iteration response could not be parsed as JSON. "
+            "Ensure the next iteration emits a valid ```iteration block with well-escaped strings. "
+            "Fix invalid escape sequences (e.g., use \\\\Gamma instead of \\Gamma). "
+            "Here is the problematic sample:\n"
+            f"{response_sample}\n"
+            "Output the corrected iteration now."
+        )
+
+    def _build_error_feedback_block(self, error: Exception) -> str:
+        """Create context instructions when iteration raises an exception."""
+        return (
+            "ERROR_FEEDBACK:\n"
+            "The previous iteration raised an internal error:\n"
+            f"{error}\n"
+            "Diagnose and correct the root cause, then rerun the iteration with valid output."
+        )
