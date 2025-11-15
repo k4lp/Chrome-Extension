@@ -1,15 +1,26 @@
 """Conversation view widget - displays chat messages and final outputs only."""
 
+import re
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QLabel
 from PyQt6.QtCore import Qt
 from loguru import logger
 
 try:
     import markdown
+
     MARKDOWN_AVAILABLE = True
 except ImportError:
     MARKDOWN_AVAILABLE = False
     logger.warning("markdown library not available - install with: pip install markdown")
+
+try:
+    from latex2mathml.converter import convert as latex_to_mathml
+
+    LATEX_AVAILABLE = True
+except ImportError:
+    LATEX_AVAILABLE = False
+    logger.warning("latex2mathml library not available - install with: pip install latex2mathml")
 
 
 class ConversationView(QWidget):
@@ -58,18 +69,56 @@ class ConversationView(QWidget):
         Returns:
             HTML string
         """
+        # First, replace LaTeX expressions with MathML so Qt can render them properly
+        processed_text = self._render_latex(text)
+
         if MARKDOWN_AVAILABLE:
             try:
                 return markdown.markdown(
-                    text,
-                    extensions=['fenced_code', 'tables', 'nl2br']
+                    processed_text,
+                    extensions=["fenced_code", "tables", "nl2br"],
                 )
             except Exception as e:
                 logger.warning(f"Markdown conversion failed: {e}")
-                return text.replace('\n', '<br>')
+                return processed_text.replace("\n", "<br>")
         else:
             # Fallback: simple newline to <br> conversion
-            return text.replace('\n', '<br>')
+            return processed_text.replace("\n", "<br>")
+
+    def _render_latex(self, text: str) -> str:
+        """Convert LaTeX expressions to MathML if the converter is available."""
+
+        if not LATEX_AVAILABLE or not text:
+            return text
+
+        def _convert(expr: str, display: bool) -> str:
+            stripped = expr.strip()
+            if not stripped:
+                return expr
+            try:
+                mathml = latex_to_mathml(stripped)
+                wrapper = "div" if display else "span"
+                cls = "math display" if display else "math inline"
+                return f"<{wrapper} class='{cls}'>{mathml}</{wrapper}>"
+            except Exception as exc:
+                logger.debug(f"LaTeX conversion failed for '{stripped[:30]}...': {exc}")
+                # Fallback to monospace representation so the user still sees raw LaTeX
+                delimiter = "$$" if display else "$"
+                return f"<code>{delimiter}{stripped}{delimiter}</code>"
+
+        # Order matters: handle $$...$$ and \[...\] (display math) before inline patterns
+        patterns = [
+            (re.compile(r"\$\$(.+?)\$\$", re.DOTALL), True),
+            (re.compile(r"\\\[(.+?)\\\]", re.DOTALL), True),
+            (re.compile(r"\\\((.+?)\\\)", re.DOTALL), False),
+            (re.compile(r"(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)", re.DOTALL), False),
+        ]
+
+        rendered = text
+        for pattern, is_display in patterns:
+            rendered = pattern.sub(lambda m: _convert(m.group(1), is_display), rendered)
+
+        return rendered
 
     def append_user_message(self, text: str):
         """Append user message to conversation.

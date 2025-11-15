@@ -1158,9 +1158,34 @@ Insights Gained:
 
         cleaned = ''.join(result)
 
+        cleaned = self._escape_markdown_code_blocks(cleaned)
+
+        # Escape LaTeX-style multi-letter commands so JSON parsing keeps the backslash
+        def _escape_multiletter(match: re.Match) -> str:
+            token = match.group(1)
+            return f"\\\\{token}"
+
+        cleaned = re.sub(r'(?<!\\)\\([A-Za-z]{2,})', _escape_multiletter, cleaned)
+
         # Double any remaining invalid escape sequences like \G or \*
         cleaned = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned)
         return cleaned
+
+    def _escape_markdown_code_blocks(self, text: str) -> str:
+        """Ensure backslashes inside markdown code blocks are preserved."""
+
+        def _escape_backslashes(segment: str) -> str:
+            return segment.replace("\\", "\\\\")
+
+        def _replace_fence(match: re.Match) -> str:
+            return _escape_backslashes(match.group(0))
+
+        fenced_pattern = re.compile(r"```.*?```", re.DOTALL)
+        inline_pattern = re.compile(r"`[^`]+`")
+
+        escaped = fenced_pattern.sub(_replace_fence, text)
+        escaped = inline_pattern.sub(_replace_fence, escaped)
+        return escaped
 
     def _parse_iteration_response(self, response: str) -> Optional[Dict[str, Any]]:
         """Parse iteration response from model using proper brace counting."""
